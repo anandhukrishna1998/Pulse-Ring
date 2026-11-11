@@ -205,6 +205,7 @@ export function bootstrapPulseRing(options = {}) {
 
     if (doc && typeof doc.createElement === 'function' && doc.body && typeof doc.execCommand === 'function') {
       let textarea = null;
+      let copied = false;
       const prevFocused = doc.activeElement;
       try {
         textarea = doc.createElement('textarea');
@@ -222,9 +223,9 @@ export function bootstrapPulseRing(options = {}) {
         textarea.focus?.({ preventScroll: true });
         textarea.select?.();
         textarea.setSelectionRange?.(0, text.length);
-        return Boolean(doc.execCommand('copy'));
+        copied = Boolean(doc.execCommand('copy'));
       } catch {
-        return false;
+        copied = false;
       } finally {
         if (textarea && textarea.parentNode) {
           textarea.parentNode.removeChild(textarea);
@@ -237,6 +238,18 @@ export function bootstrapPulseRing(options = {}) {
           }
         }
       }
+      if (copied) {
+        return true;
+      }
+    }
+
+    if (typeof win?.prompt === 'function') {
+      try {
+        win.prompt('Copy your PULSE RING Daily result:', text);
+      } catch {
+        // Ignore prompt errors in restricted environments
+      }
+      lastTimestamp = null;
     }
 
     return false;
@@ -377,6 +390,14 @@ export function bootstrapPulseRing(options = {}) {
       }
       e.preventDefault?.();
       handleGameAction();
+      return;
+    }
+
+    if (e.key === 'Escape' || e.code === 'Escape') {
+      if (hud.isRulesOpen()) {
+        e.preventDefault?.();
+        hud.closeRules({ restoreFocus: true });
+      }
       return;
     }
 
