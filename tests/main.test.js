@@ -619,4 +619,123 @@ describe('main bootstrap integration', () => {
 
     app.destroy();
   });
+
+  it('syncs --app-height/--app-width from visualViewport and unlocks audio on touchend/click across iOS devices', () => {
+    const env = createFakeEnv({ prefersDark: true, reducedMotion: false, dpr: 3 });
+    const cssProps = new Map();
+    env.doc.documentElement.style = {
+      setProperty: (k, v) => cssProps.set(k, String(v))
+    };
+
+    const vvListeners = new Map();
+    let vvWidth = 390;
+    let vvHeight = 664;
+    let stageWidth = 390;
+    let stageHeight = 520;
+    env.stage.getBoundingClientRect = () => ({ width: stageWidth, height: stageHeight });
+
+    let scrollToCalls = 0;
+    env.win.scrollTo = () => {
+      scrollToCalls += 1;
+    };
+    env.win.visualViewport = {
+      get width() { return vvWidth; },
+      get height() { return vvHeight; },
+      addEventListener: (ev, fn) => {
+        if (!vvListeners.has(ev)) vvListeners.set(ev, []);
+        vvListeners.get(ev).push(fn);
+      },
+      removeEventListener: (ev, fn) => {
+        if (!vvListeners.has(ev)) return;
+        vvListeners.set(ev, vvListeners.get(ev).filter((f) => f !== fn));
+      }
+    };
+
+    const audioUnlockCalls = [];
+    const mockSynth = {
+      muted: false,
+      setMuted(m) { this.muted = Boolean(m); },
+      isMuted() { return this.muted; },
+      unlock(opts) { audioUnlockCalls.push({ muted: this.muted, force: Boolean(opts?.force) }); },
+      playSnap() {},
+      playLevelClear() {},
+      playMiss() {}
+    };
+
+    const audioConstructorArgs = [];
+    env.win.Audio = class MockHtmlAudio {
+      constructor(src) {
+        audioConstructorArgs.push(src);
+        this.volume = 1;
+        this.muted = false;
+        this.playsInline = false;
+      }
+      play() {
+        return Promise.resolve();
+      }
+    };
+
+    const app = bootstrapPulseRing({
+      doc: env.doc,
+      win: env.win,
+      synth: mockSynth
+    });
+
+    assert.equal(cssProps.get('--app-height'), '664px');
+    assert.equal(cssProps.get('--app-width'), '390px');
+    assert.ok(scrollToCalls >= 1);
+
+    // visualViewport resize / scroll / orientationchange updates --app-height and resizes canvas
+    vvWidth = 844;
+    vvHeight = 360;
+    stageWidth = 844;
+    stageHeight = 260;
+    for (const fn of vvListeners.get('resize') || []) fn();
+    assert.equal(cssProps.get('--app-height'), '360px');
+    assert.equal(cssProps.get('--app-width'), '844px');
+    assert.equal(env.canvas.width, 844 * 3);
+    assert.equal(env.canvas.height, 260 * 3);
+
+    vvHeight = 340;
+    for (const fn of vvListeners.get('scroll') || []) fn();
+    assert.equal(cssProps.get('--app-height'), '340px');
+
+    vvHeight = 760;
+    env.win.dispatchWin('orientationchange');
+    assert.equal(cssProps.get('--app-height'), '760px');
+
+    vvHeight = 780;
+    env.win.dispatchWin('pageshow');
+    assert.equal(cssProps.get('--app-height'), '780px');
+
+    // iOS document-level touchend and click force audio unlock cleanly when unmuted
+    env.doc.dispatchDoc('touchend', { target: env.canvas });
+    env.doc.dispatchDoc('click', { target: env.doc.body });
+    assert.deepEqual(audioUnlockCalls, [
+      { muted: false, force: true },
+      { muted: false, force: true }
+    ]);
+    assert.equal(audioConstructorArgs.length, 1);
+    assert.match(audioConstructorArgs[0], /^data:audio\/wav;base64,/);
+
+    // Verify canonical RIFF/WAVE PCM header of legacy silent WAV primer
+    const wavBytes = Buffer.from(audioConstructorArgs[0].split(',')[1], 'base64');
+    assert.equal(wavBytes.subarray(0, 4).toString(), 'RIFF');
+    assert.equal(wavBytes.subarray(8, 12).toString(), 'WAVE');
+    assert.equal(wavBytes.readUInt32LE(16), 16);
+    assert.equal(wavBytes.subarray(36, 40).toString(), 'data');
+
+    // Muted synth does NOT trigger unlock on stray touches
+    mockSynth.setMuted(true);
+    env.doc.dispatchDoc('touchend', { target: env.canvas });
+    assert.equal(audioUnlockCalls.length, 2);
+
+    app.destroy();
+    assert.equal((vvListeners.get('resize') || []).length, 0);
+    assert.equal((vvListeners.get('scroll') || []).length, 0);
+    assert.equal(env.doc.docListenerCount('touchend'), 0);
+    assert.equal(env.doc.docListenerCount('click'), 0);
+    assert.equal(env.win.winListenerCount('orientationchange'), 0);
+    assert.equal(env.win.winListenerCount('pageshow'), 0);
+  });
 });

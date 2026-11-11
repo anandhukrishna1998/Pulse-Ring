@@ -401,6 +401,11 @@ describe('hud controller', () => {
     assert.match(html, /id="rules-popover"[\s\S]*role="dialog"[\s\S]*hidden/);
 
     assert.match(css, /100dvh/);
+    assert.match(css, /var\(--app-height,\s*100dvh\)/);
+    assert.match(css, /body\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;[\s\S]*touch-action:\s*manipulation;/);
+    assert.match(css, /\.app-shell\s*\{[\s\S]*position:\s*fixed;[\s\S]*top:\s*0;[\s\S]*left:\s*0;[\s\S]*overflow:\s*hidden;/);
+    assert.match(css, /\.rules-popover\s*\{[\s\S]*touch-action:\s*pan-y;/);
+    assert.match(css, /#arena\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*0;/);
     assert.match(css, /env\(safe-area-inset-top/);
     assert.match(css, /touch-action:\s*none/);
     assert.match(css, /min-width:\s*44px/);

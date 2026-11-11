@@ -433,4 +433,117 @@ describe('audio synth', () => {
       Date.now = originalDateNow;
     }
   });
+
+  it('sets navigator.audioSession.type to playback when unmuted, primes a silent buffer on unlock, and recovers from hung resume()', async () => {
+    const mockNav = { audioSession: { type: 'auto' } };
+    const bufferOps = [];
+
+    class PrimingAudioContext extends createMockAudioContextClass({ initialState: 'running' }).MockAudioContext {
+      createBuffer(channels, length, sampleRate) {
+        const buf = { channels, length, sampleRate };
+        bufferOps.push(['createBuffer', channels, length, sampleRate]);
+        return buf;
+      }
+      createBufferSource() {
+        const src = {
+          buffer: null,
+          connect: () => bufferOps.push(['connect']),
+          start: (t) => bufferOps.push(['startBuffer', t, src.buffer?.length])
+        };
+        return src;
+      }
+    }
+
+    // Muted synth must never change navigator.audioSession or construct AudioContext
+    const mutedSynth = createAudioSynth({
+      AudioContextClass: PrimingAudioContext,
+      navigator: mockNav,
+      muted: true
+    });
+    mutedSynth.unlock();
+    assert.equal(mockNav.audioSession.type, 'auto');
+    assert.equal(bufferOps.length, 0);
+
+    // Unmuting and unlocking configures playback audioSession & primes 1-sample silent buffer once
+    mutedSynth.setMuted(false);
+    mutedSynth.unlock();
+    assert.equal(mockNav.audioSession.type, 'playback');
+    assert.deepEqual(bufferOps, [
+      ['createBuffer', 1, 1, 22050],
+      ['connect'],
+      ['startBuffer', 0, 1]
+    ]);
+
+    // Hung/never-settling resume() outside gesture must NOT permanently wedge subsequent taps after stale window
+    let resumeAttempts = 0;
+    let nowMs = 5000;
+    const originalDateNow = Date.now;
+    Date.now = () => nowMs;
+    try {
+      const events = [];
+      class RecoveringAudioContext {
+        constructor() {
+          this.state = 'suspended';
+          this.currentTime = 0;
+          this.destination = {};
+        }
+        resume() {
+          resumeAttempts += 1;
+          events.push({ type: 'resume', attempt: resumeAttempts });
+          if (resumeAttempts === 1) {
+            return new Promise(() => {}); // Hung promise (e.g. pointerdown blocked on iOS)
+          }
+          return Promise.resolve().then(() => {
+            this.state = 'running';
+            this.currentTime = 0.5;
+          });
+        }
+        createOscillator() {
+          const osc = {
+            type: 'sine',
+            frequency: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
+            connect: () => {},
+            start: (t) => events.push({ type: 'start', t }),
+            stop: () => {}
+          };
+          return osc;
+        }
+        createGain() {
+          return {
+            gain: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
+            connect: () => {}
+          };
+        }
+      }
+
+      const recovering = createAudioSynth({ AudioContextClass: RecoveringAudioContext });
+      recovering.unlock(); // Attempt 1 hangs
+      assert.equal(resumeAttempts, 1);
+
+      nowMs += 400; // Stale hung promise (>300ms) allows retry cleanly
+      recovering.unlock();
+      recovering.playSnap(0, false);
+      assert.equal(resumeAttempts, 2);
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(events.filter((e) => e.type === 'start').length, 1);
+
+      // Simulate iOS pointerdown hang followed 50ms later (<300ms) by touchend calling unlock({ force: true })
+      resumeAttempts = 0;
+      events.length = 0;
+      const iosTap = createAudioSynth({ AudioContextClass: RecoveringAudioContext });
+      iosTap.unlock(); // Attempt 1 (pointerdown) hangs
+      iosTap.playSnap(1, false); // Queued waiting for unlock
+      assert.equal(resumeAttempts, 1);
+
+      nowMs += 50; // touchend 50ms later MUST retry resume when forced and replay queued snap chime
+      iosTap.unlock({ force: true });
+      assert.equal(resumeAttempts, 2);
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(events.filter((e) => e.type === 'start').length, 1);
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
 });

@@ -121,8 +121,34 @@ export function bootstrapPulseRing(options = {}) {
       endlessSeed: options?.endlessSeed
     });
 
-  const synth = options?.synth ?? createAudioSynth({ muted });
+  const synth = options?.synth ?? createAudioSynth({ muted, navigator: nav });
   synth.setMuted(muted);
+
+  const SILENT_WAV_DATA_URI =
+    'data:audio/wav;base64,UklGRkQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+  let htmlAudioPrimed = false;
+
+  function primeLegacyHtmlAudio() {
+    if (htmlAudioPrimed || synth.isMuted()) return;
+    if (nav && 'audioSession' in nav) return;
+    if (typeof win?.Audio !== 'function') return;
+    htmlAudioPrimed = true;
+    try {
+      const primer = new win.Audio(SILENT_WAV_DATA_URI);
+      primer.muted = false;
+      primer.volume = 0.01;
+      primer.playsInline = true;
+      primer.setAttribute?.('playsinline', '');
+      const playPromise = primer.play?.();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+          htmlAudioPrimed = false;
+        });
+      }
+    } catch {
+      htmlAudioPrimed = false;
+    }
+  }
 
   const canvas = options?.canvas ?? doc?.getElementById?.('arena') ?? null;
   const stageEl = options?.stage ?? doc?.querySelector?.('.stage') ?? canvas?.parentElement ?? canvas;
@@ -147,6 +173,8 @@ export function bootstrapPulseRing(options = {}) {
   let lastCssWidth = 0;
   let lastCssHeight = 0;
   let lastDpr = getSafeDpr(win);
+  let lastVvWidth = 0;
+  let lastVvHeight = 0;
 
   const listeners = [];
 
@@ -160,6 +188,46 @@ export function bootstrapPulseRing(options = {}) {
     const paused = tabPaused || rulesPaused;
     controller.setPaused(paused);
     lastTimestamp = null;
+  }
+
+  function getViewportDimensions() {
+    const vv = win?.visualViewport;
+    const width =
+      Number.isFinite(vv?.width) && vv.width > 0
+        ? Math.round(vv.width)
+        : Number.isFinite(win?.innerWidth) && win.innerWidth > 0
+          ? Math.round(win.innerWidth)
+          : 0;
+    const height =
+      Number.isFinite(vv?.height) && vv.height > 0
+        ? Math.round(vv.height)
+        : Number.isFinite(win?.innerHeight) && win.innerHeight > 0
+          ? Math.round(win.innerHeight)
+          : 0;
+    return { width, height };
+  }
+
+  function syncViewportSize() {
+    const { width, height } = getViewportDimensions();
+    lastVvWidth = width;
+    lastVvHeight = height;
+
+    if (typeof doc?.documentElement?.style?.setProperty === 'function') {
+      if (height > 0) {
+        doc.documentElement.style.setProperty('--app-height', `${height}px`);
+      }
+      if (width > 0) {
+        doc.documentElement.style.setProperty('--app-width', `${width}px`);
+      }
+    }
+
+    if (typeof win?.scrollTo === 'function') {
+      try {
+        win.scrollTo(0, 0);
+      } catch {
+        // Ignore restricted scroll environments
+      }
+    }
   }
 
   function syncCanvasSize(explicitWidth, explicitHeight) {
@@ -185,6 +253,12 @@ export function bootstrapPulseRing(options = {}) {
   }
 
   function syncDprIfChanged() {
+    const { width, height } = getViewportDimensions();
+    if (width > 0 && height > 0 && (width !== lastVvWidth || height !== lastVvHeight)) {
+      syncViewportSize();
+      syncCanvasSize();
+      return;
+    }
     const currentDpr = getSafeDpr(win);
     if (currentDpr !== lastDpr && lastCssWidth > 0 && lastCssHeight > 0) {
       lastDpr = currentDpr;
@@ -276,6 +350,7 @@ export function bootstrapPulseRing(options = {}) {
     storage.setMuted(muted);
     synth.setMuted(muted);
     if (!muted) {
+      primeLegacyHtmlAudio();
       synth.unlock();
     }
     hud.sync(controller.getSnapshot(), { theme, muted });
@@ -311,6 +386,7 @@ export function bootstrapPulseRing(options = {}) {
       return;
     }
 
+    primeLegacyHtmlAudio();
     synth.unlock();
     const res = controller.triggerAction();
     if (!res || res.action === 'ignored') {
@@ -446,9 +522,16 @@ export function bootstrapPulseRing(options = {}) {
   }
 
   function handleWindowResize() {
+    syncViewportSize();
     if (syncCanvasSize()) {
       renderer.render(controller.getSnapshot());
     }
+  }
+
+  function handleGestureAudioUnlock() {
+    if (synth.isMuted()) return;
+    primeLegacyHtmlAudio();
+    synth.unlock({ force: true });
   }
 
   function handleReducedMotionChange(event) {
@@ -458,11 +541,17 @@ export function bootstrapPulseRing(options = {}) {
   }
 
   listen(canvas, 'pointerdown', handleArenaPointerDown);
+  listen(doc, 'touchend', handleGestureAudioUnlock, { passive: true });
+  listen(doc, 'click', handleGestureAudioUnlock);
   listen(doc, 'keydown', handleKeyDown);
   listen(doc, 'visibilitychange', handleVisibilityChange);
   listen(win, 'blur', handleWindowBlur);
   listen(win, 'focus', handleWindowFocus);
   listen(win, 'resize', handleWindowResize);
+  listen(win, 'orientationchange', handleWindowResize);
+  listen(win, 'pageshow', handleWindowResize);
+  listen(win?.visualViewport, 'resize', handleWindowResize);
+  listen(win?.visualViewport, 'scroll', handleWindowResize);
 
   let resizeObserver = null;
   const ResizeObserverCtor = win?.ResizeObserver ?? globalThis.ResizeObserver;
@@ -553,6 +642,7 @@ export function bootstrapPulseRing(options = {}) {
     rafId = reqFrame(onFrame);
   }
 
+  syncViewportSize();
   syncCanvasSize();
   syncPausedState();
   const initialSnapshot = controller.getSnapshot();

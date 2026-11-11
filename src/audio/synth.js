@@ -29,6 +29,17 @@ function resolveAudioContextClass(options) {
   }
 }
 
+function resolveNavigator(options) {
+  if (options && Object.prototype.hasOwnProperty.call(options, 'navigator')) {
+    return options.navigator ?? null;
+  }
+  try {
+    return typeof navigator !== 'undefined' ? navigator : null;
+  } catch {
+    return null;
+  }
+}
+
 function getPentatonicFreq(streakIndex) {
   const safeIndex = Number.isFinite(streakIndex) ? Math.max(0, Math.floor(streakIndex)) : 0;
   return PENTATONIC_HZ[safeIndex % PENTATONIC_HZ.length];
@@ -68,17 +79,95 @@ function scheduleTone(context, { type = 'sine', freq, endFreq, startTime, durati
 
 /**
  * Create a zero-asset procedural Web Audio pentatonic synthesizer.
- * @param {{ AudioContextClass?: typeof AudioContext | null, muted?: boolean }} [options]
+ * @param {{ AudioContextClass?: typeof AudioContext | null, navigator?: Navigator | null, muted?: boolean }} [options]
  */
 export function createAudioSynth(options = {}) {
   const ContextCtor = resolveAudioContextClass(options);
+  const nav = resolveNavigator(options);
   let muted = Boolean(options?.muted);
   let muteEpoch = 0;
   let ctx = null;
   let pendingResume = null;
+  let pendingResumeStartedAt = 0;
+  let bufferPrimedForCtx = null;
+  let waitingCallbacks = [];
 
-  function startResume(context) {
-    if (pendingResume) {
+  function enablePlaybackAudioSession() {
+    if (muted || !nav) return;
+    try {
+      if ('audioSession' in nav && nav.audioSession && nav.audioSession.type !== 'playback') {
+        nav.audioSession.type = 'playback';
+      }
+    } catch {
+      // Ignore unsupported or read-only navigator.audioSession environments.
+    }
+  }
+
+  function primeSilentBuffer(context) {
+    if (!context || bufferPrimedForCtx === context) {
+      return;
+    }
+    if (typeof context.createBuffer !== 'function' || typeof context.createBufferSource !== 'function') {
+      return;
+    }
+    try {
+      const buffer = context.createBuffer(1, 1, 22050);
+      const source = context.createBufferSource();
+      if (!source || typeof source.connect !== 'function' || typeof source.start !== 'function') {
+        return;
+      }
+      source.buffer = buffer;
+      source.connect(context.destination);
+      source.start(0);
+      if (context.state == null || context.state === 'running') {
+        bufferPrimedForCtx = context;
+      }
+    } catch {
+      // Ignore silent-buffer priming errors before audio unlock completes.
+    }
+  }
+
+  function pruneWaitingCallbacks(nowMs) {
+    if (waitingCallbacks.length === 0) return;
+    waitingCallbacks = waitingCallbacks.filter(
+      (entry) =>
+        !muted &&
+        entry.queuedMuteEpoch === muteEpoch &&
+        entry.targetCtx === ctx &&
+        nowMs - entry.queuedAt <= RESUME_REPLAY_WINDOW_MS
+    );
+  }
+
+  function flushWaitingCallbacks() {
+    if (waitingCallbacks.length === 0 || muted || !ctx) {
+      return;
+    }
+    if (ctx.state != null && ctx.state !== 'running') {
+      return;
+    }
+    primeSilentBuffer(ctx);
+    const nowMs = Date.now();
+    const pending = waitingCallbacks;
+    waitingCallbacks = [];
+    for (const entry of pending) {
+      if (
+        !muted &&
+        entry.queuedMuteEpoch === muteEpoch &&
+        entry.targetCtx === ctx &&
+        nowMs - entry.queuedAt <= RESUME_REPLAY_WINDOW_MS
+      ) {
+        try {
+          entry.schedule(ctx);
+        } catch {
+          // Silent fallback if Web Audio node scheduling fails.
+        }
+      }
+    }
+  }
+
+  function startResume(context, force = false) {
+    const nowMs = Date.now();
+    if (!force && pendingResume && nowMs - pendingResumeStartedAt <= RESUME_REPLAY_WINDOW_MS) {
       return pendingResume;
     }
     if (!context || typeof context.resume !== 'function') {
@@ -93,9 +182,12 @@ export function createAudioSynth(options = {}) {
     }
 
     if (context.state == null || context.state === 'running') {
+      pendingResume = null;
+      pendingResumeStartedAt = 0;
       if (rawResult && typeof rawResult.catch === 'function') {
         rawResult.catch(() => {});
       }
+      flushWaitingCallbacks();
       return null;
     }
 
@@ -103,15 +195,20 @@ export function createAudioSynth(options = {}) {
       return null;
     }
 
+    pendingResumeStartedAt = nowMs;
     let tracked;
     tracked = Promise.resolve(rawResult)
       .then(
-        () => true,
+        () => {
+          flushWaitingCallbacks();
+          return true;
+        },
         () => false
       )
       .finally(() => {
         if (pendingResume === tracked) {
           pendingResume = null;
+          pendingResumeStartedAt = 0;
         }
       });
 
@@ -119,10 +216,12 @@ export function createAudioSynth(options = {}) {
     return tracked;
   }
 
-  function ensureContext() {
+  function ensureContext({ forceResume = false } = {}) {
     if (muted || !ContextCtor) {
       return null;
     }
+
+    enablePlaybackAudioSession();
 
     if (!ctx) {
       try {
@@ -137,13 +236,22 @@ export function createAudioSynth(options = {}) {
       return null;
     }
 
+    if (ctx.state === 'interrupted') {
+      bufferPrimedForCtx = null;
+    }
+
     if (ctx.state == null || ctx.state === 'running') {
+      primeSilentBuffer(ctx);
+      flushWaitingCallbacks();
       return ctx;
     }
 
     if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
-      startResume(ctx);
+      primeSilentBuffer(ctx);
+      startResume(ctx, forceResume);
       if (ctx.state === 'running') {
+        primeSilentBuffer(ctx);
+        flushWaitingCallbacks();
         return ctx;
       }
     }
@@ -166,33 +274,18 @@ export function createAudioSynth(options = {}) {
       return;
     }
 
-    const targetCtx = ctx;
-    const queuedAt = Date.now();
-    const queuedMuteEpoch = muteEpoch;
-
-    pendingResume.then(
-      (resumed) => {
-        if (
-          resumed &&
-          !muted &&
-          muteEpoch === queuedMuteEpoch &&
-          ctx === targetCtx &&
-          (targetCtx.state == null || targetCtx.state === 'running') &&
-          Date.now() - queuedAt <= RESUME_REPLAY_WINDOW_MS
-        ) {
-          try {
-            schedule(targetCtx);
-          } catch {
-            // Silent fallback if Web Audio node scheduling fails.
-          }
-        }
-      },
-      () => {}
-    );
+    const nowMs = Date.now();
+    pruneWaitingCallbacks(nowMs);
+    waitingCallbacks.push({
+      schedule,
+      queuedAt: nowMs,
+      queuedMuteEpoch: muteEpoch,
+      targetCtx: ctx
+    });
   }
 
-  function unlock() {
-    ensureContext();
+  function unlock(unlockOptions = {}) {
+    ensureContext({ forceResume: Boolean(unlockOptions?.force) });
   }
 
   function setMuted(nextMuted) {
@@ -200,6 +293,7 @@ export function createAudioSynth(options = {}) {
     if (next !== muted) {
       muteEpoch += 1;
       muted = next;
+      waitingCallbacks = [];
     }
   }
 
