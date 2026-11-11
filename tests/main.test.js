@@ -4,7 +4,9 @@ import { bootstrapPulseRing } from '../src/main.js';
 import { MISS_RETRY_COOLDOWN } from '../src/game/state.js';
 
 function createMockContext() {
+  const ops = [];
   return {
+    ops,
     save() {},
     restore() {},
     setTransform() {},
@@ -14,7 +16,9 @@ function createMockContext() {
     fillRect() {},
     beginPath() {},
     arc() {},
-    moveTo() {},
+    moveTo(x, y) {
+      ops.push({ op: 'moveTo', x, y });
+    },
     lineTo() {},
     stroke() {},
     fill() {},
@@ -399,9 +403,11 @@ describe('main bootstrap integration', () => {
     env.flushRaf(116);
     assert.equal(app.controller.state.orbAngle, pausedAngle);
 
+    const callsDuringRulesSnap = audioCalls.length;
     env.canvas.dispatch('pointerdown', { pointerType: 'touch', button: 0 });
     env.doc.dispatchDoc('keydown', { key: 'Enter', code: 'Enter', target: env.doc.body });
     assert.equal(app.controller.state.phase, 'snapping');
+    assert.equal(audioCalls.length, callsDuringRulesSnap);
 
     // H closes rules with focus restored to #btn-rules
     env.doc.dispatchDoc('keydown', { key: 'h', code: 'KeyH', target: env.doc.body });
@@ -417,6 +423,18 @@ describe('main bootstrap integration', () => {
     env.flushRaf(6100);
     assert.equal(app.controller.state.phase, 'playing');
     assert.equal(app.controller.state.activeRingIndex, 1);
+
+    // Rules open guard also blocks pointerdown, Space, and Enter during 'playing' phase without calling synth.unlock()
+    env.doc.dispatchDoc('keydown', { key: '?', code: 'Slash', shiftKey: true, target: env.doc.body });
+    assert.equal(app.hud.isRulesOpen(), true);
+    const callsDuringRulesPlaying = audioCalls.length;
+    env.canvas.dispatch('pointerdown', { pointerType: 'touch', button: 0 });
+    env.doc.dispatchDoc('keydown', { key: ' ', code: 'Space', target: env.doc.body });
+    env.doc.dispatchDoc('keydown', { key: 'Enter', code: 'Enter', target: env.doc.body });
+    assert.equal(app.controller.state.phase, 'playing');
+    assert.equal(audioCalls.length, callsDuringRulesPlaying);
+    env.doc.dispatchDoc('keydown', { key: 'h', code: 'KeyH', target: env.doc.body });
+    assert.equal(app.hud.isRulesOpen(), false);
 
     // Complete level 1 -> level_clear -> transitions to level 2 in RAF & updates HUD
     app.controller.state.orbAngle = app.controller.state.rings[1].arcCenter;
@@ -457,7 +475,18 @@ describe('main bootstrap integration', () => {
     env.win.dispatchWin('resize');
     assert.equal(env.canvas.width, 1000);
     assert.equal(env.canvas.height, 1400);
+
+    // Build trail samples under normal motion (>2 moveTo ops), then switch reduced-motion ON (trail suppressed -> 2 notch moveTos only)
+    env.ctx.ops.length = 0;
+    env.flushRaf(25050);
+    env.flushRaf(25070);
+    const moveTosWithTrail = env.ctx.ops.filter((o) => o.op === 'moveTo').length;
+    assert.ok(moveTosWithTrail > 2);
+
+    env.ctx.ops.length = 0;
     env.triggerReducedMotion(true);
+    const moveTosReduced = env.ctx.ops.filter((o) => o.op === 'moveTo').length;
+    assert.equal(moveTosReduced, 2);
 
     // Daily mode toggle (D), miss, unique sr-announcer, and 3-tier Share clipboard fallback
     env.doc.dispatchDoc('keydown', { key: 'd', code: 'KeyD', target: env.doc.body });
@@ -468,6 +497,7 @@ describe('main bootstrap integration', () => {
     env.canvas.dispatch('pointerdown', { pointerType: 'touch', button: 0 });
     assert.equal(app.controller.state.phase, 'missed');
     const missMsg1 = env.ids.get('sr-announcer').textContent;
+    assert.match(missMsg1, /^Daily run ended on level 1, streak 0\. Attempt 1\.$/);
 
     // Tier 1: navigator.clipboard.writeText succeeds (must NOT invoke execCommand or win.prompt)
     const shareBtn = env.ids.get('btn-share-daily');
@@ -494,14 +524,30 @@ describe('main bootstrap integration', () => {
     assert.equal(shareBtn.textContent, 'Copied!');
     env.doc.activeElement = env.doc.body;
 
-    // Retry, miss again, then fail BOTH clipboard & execCommand -> Tier 3 win.prompt & resets lastTimestamp
-    app.controller.step(MISS_RETRY_COOLDOWN);
+    // Bounce guard ignores tap before MISS_RETRY_COOLDOWN (0.16s), then 4x 0.05s steps unlock retry
+    app.controller.step(0.05);
     env.canvas.dispatch('pointerdown', { pointerType: 'touch', button: 0 });
+    assert.equal(app.controller.state.phase, 'missed');
+
+    for (let i = 0; i < 4; i++) {
+      app.controller.step(0.05);
+    }
+    assert.ok(app.controller.state.missElapsed >= MISS_RETRY_COOLDOWN);
+    env.canvas.dispatch('pointerdown', { pointerType: 'touch', button: 0 });
+    assert.equal(app.controller.state.phase, 'playing');
+    assert.equal(app.controller.state.level, 1);
+    assert.match(env.ids.get('sr-announcer').textContent, /^Daily run restarted at level 1\. Attempt 2\.$/);
+
+    // Advance RAF, trigger second miss, verify new miss announcement & Tier 3 win.prompt + lastTimestamp reset
     env.flushRaf(30000);
     env.flushRaf(30016);
+    const missCallsBefore = audioCalls.filter((c) => c[0] === 'playMiss').length;
     app.controller.state.orbAngle = app.controller.state.rings[0].arcCenter + Math.PI;
     env.canvas.dispatch('pointerdown', { pointerType: 'touch', button: 0 });
+    assert.equal(app.controller.state.phase, 'missed');
+    assert.equal(audioCalls.filter((c) => c[0] === 'playMiss').length, missCallsBefore + 1);
     const missMsg2 = env.ids.get('sr-announcer').textContent;
+    assert.match(missMsg2, /^Daily run ended on level 1, streak 0\. Attempt 3\.$/);
     assert.notEqual(missMsg1, missMsg2);
 
     env.doc.execCommandResult = false;
