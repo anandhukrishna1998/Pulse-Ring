@@ -301,4 +301,58 @@ describe('game state controller', () => {
     assert.equal(defaultGame.state.mode, 'endless');
     assert.equal(defaultGame.state.level, 1);
   });
+
+  it('persists level advancement immediately on level_clear across mode switches and reloads', () => {
+    const store = createMemoryStorage();
+    const game = createGameController({
+      storage: store,
+      dateKeyProvider: () => '2026-11-11',
+      endlessSeed: 'test-seed'
+    });
+
+    // Snap through Level 1 rings in Endless to enter level_clear
+    game.state.orbAngle = game.state.rings[0].arcCenter;
+    game.triggerAction();
+    while (game.state.phase === 'snapping') game.step(0.05);
+    game.state.orbAngle = game.state.rings[1].arcCenter;
+    game.triggerAction();
+
+    assert.equal(game.state.phase, 'level_clear');
+    assert.equal(game.state.level, 1);
+    assert.equal(game.state.bestLevel, 2);
+    assert.equal(store.getEndlessStats().currentLevel, 2);
+    assert.equal(store.getEndlessStats().bestLevel, 2);
+
+    // Switching to Daily and back to Endless during level_clear preserves Level 2
+    game.setMode('daily');
+    assert.equal(game.state.mode, 'daily');
+    assert.equal(game.state.level, 1);
+
+    game.setMode('endless');
+    assert.equal(game.state.mode, 'endless');
+    assert.equal(game.state.level, 2);
+    assert.equal(game.state.phase, 'playing');
+
+    // Simulating reload during level_clear also starts at Level 2
+    const reloaded = createGameController({
+      storage: store,
+      dateKeyProvider: () => '2026-11-11',
+      endlessSeed: 'test-seed'
+    });
+    assert.equal(reloaded.state.level, 2);
+
+    // Daily mode also updates bestLevel immediately when entering level_clear
+    reloaded.setMode('daily');
+    reloaded.state.orbAngle = reloaded.state.rings[0].arcCenter;
+    reloaded.triggerAction();
+    while (reloaded.state.phase === 'snapping') reloaded.step(0.05);
+    reloaded.state.orbAngle = reloaded.state.rings[1].arcCenter;
+    reloaded.triggerAction();
+
+    assert.equal(reloaded.state.phase, 'level_clear');
+    assert.equal(reloaded.state.level, 1);
+    assert.equal(reloaded.state.bestLevel, 2);
+    assert.equal(reloaded.state.dailyStats.bestLevel, 2);
+    assert.equal(store.getDailyStats('2026-11-11').bestLevel, 2);
+  });
 });

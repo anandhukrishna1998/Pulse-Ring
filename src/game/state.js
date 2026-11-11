@@ -85,13 +85,13 @@ export function createGameController(options = {}) {
     state.trail = [];
   }
 
-  function syncModeProgressOnSuccess() {
+  function syncModeProgressOnSuccess(targetLevel = state.level) {
     state.bestStreak = Math.max(state.bestStreak, state.streak);
-    state.bestLevel = Math.max(state.bestLevel, state.level);
+    state.bestLevel = Math.max(state.bestLevel, targetLevel);
 
     if (state.mode === 'endless') {
       storage.saveEndlessStats({
-        currentLevel: state.level,
+        currentLevel: targetLevel,
         bestLevel: state.bestLevel,
         bestStreak: state.bestStreak
       });
@@ -177,22 +177,7 @@ export function createGameController(options = {}) {
     if (state.phase === 'level_clear') {
       state.phaseTimer -= dt;
       if (state.phaseTimer <= 0) {
-        const nextLevel = state.level + 1;
-        state.bestLevel = Math.max(state.bestLevel, nextLevel);
-        if (state.mode === 'endless') {
-          storage.saveEndlessStats({
-            currentLevel: nextLevel,
-            bestLevel: state.bestLevel,
-            bestStreak: state.bestStreak
-          });
-        } else {
-          state.dailyStats = {
-            ...state.dailyStats,
-            bestLevel: Math.max(state.dailyStats.bestLevel, nextLevel)
-          };
-          storage.saveDailyStats(state.dailyKey, state.dailyStats);
-        }
-        loadLevel(nextLevel);
+        loadLevel(state.level + 1);
       }
       return;
     }
@@ -290,9 +275,9 @@ export function createGameController(options = {}) {
       duration: isPerfect ? PERFECT_RIPPLE_DURATION : HIT_RIPPLE_DURATION
     });
 
-    syncModeProgressOnSuccess();
-
     const isLastRing = state.activeRingIndex >= state.rings.length - 1;
+    syncModeProgressOnSuccess(isLastRing ? state.level + 1 : state.level);
+
     if (isLastRing) {
       state.phase = 'level_clear';
       state.phaseTimer = LEVEL_CLEAR_DURATION;
