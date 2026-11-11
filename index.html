@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#0F1117" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#F6F4EF" media="(prefers-color-scheme: light)" />
+  <meta name="description" content="PULSE RING — A precision concentric ring timing game with Endless and Daily Challenge modes." />
+  <title>PULSE RING</title>
+  <script>
+    (function () {
+      var theme = 'dark';
+      try {
+        var saved = localStorage.getItem('pulse-ring:theme');
+        if (saved === 'dark' || saved === 'light') {
+          theme = saved;
+        } else if (typeof window.matchMedia === 'function') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+      } catch (e) {}
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
+  <link rel="stylesheet" href="./styles/main.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hud" aria-label="Game status and controls">
+      <div class="hud-stats" aria-label="Score statistics">
+        <div class="hud-stat-group">
+          <span class="hud-label">LEVEL</span>
+          <span id="hud-level" class="hud-value">01</span>
+        </div>
+        <div class="hud-stat-group">
+          <span class="hud-label">STREAK</span>
+          <span id="hud-streak" class="hud-value">00</span>
+          <span class="hud-sep" aria-hidden="true">/</span>
+          <span class="hud-label">BEST</span>
+          <span id="hud-best" class="hud-value">00</span>
+        </div>
+      </div>
+
+      <h1 class="hud-title">PULSE RING</h1>
+
+      <div class="hud-actions" role="group" aria-label="Game controls">
+        <button
+          type="button"
+          id="btn-daily"
+          class="hud-btn hud-btn-pill"
+          aria-pressed="false"
+          aria-label="Daily Challenge mode (D)"
+          title="Toggle Daily Challenge (D)"
+        >
+          <span class="daily-dot" aria-hidden="true"></span>
+          <span>DAILY</span>
+        </button>
+
+        <button
+          type="button"
+          id="btn-mute"
+          class="hud-btn hud-btn-icon"
+          aria-pressed="false"
+          aria-label="Mute audio (M)"
+          title="Mute or unmute audio (M)"
+        >
+          <svg class="icon-sound-on" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5L6 9H3v6h3l5 4V5z" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+          </svg>
+          <svg class="icon-sound-off" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5L6 9H3v6h3l5 4V5z" />
+            <path d="M21 9l-6 6" />
+            <path d="M15 9l6 6" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          id="btn-theme"
+          class="hud-btn hud-btn-icon"
+          aria-pressed="false"
+          aria-label="Switch to light theme (T)"
+          title="Toggle theme (T)"
+          data-theme="dark"
+        >
+          <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2" />
+            <path d="M12 20v2" />
+            <path d="M4.93 4.93l1.41 1.41" />
+            <path d="M17.66 17.66l1.41 1.41" />
+            <path d="M2 12h2" />
+            <path d="M20 12h2" />
+            <path d="M6.34 17.66l-1.41 1.41" />
+            <path d="M19.07 4.93l-1.41 1.41" />
+          </svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20.35 14.35A8.5 8.5 0 0 1 9.65 3.65a8.5 8.5 0 1 0 10.7 10.7z" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          id="btn-rules"
+          class="hud-btn hud-btn-icon"
+          aria-expanded="false"
+          aria-controls="rules-popover"
+          aria-label="How to play and shortcuts (?)"
+          title="Rules and shortcuts (?)"
+        >
+          <svg class="icon-rules" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9.5 9.25a2.6 2.6 0 0 1 5.05.85c0 1.65-2.55 2.15-2.55 3.4" />
+            <circle cx="12" cy="16.85" r="0.6" fill="currentColor" stroke="none" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <canvas
+        id="arena"
+        tabindex="0"
+        role="application"
+        aria-label="Pulse Ring game arena. Tap anywhere or press Space or Enter to snap the orbiting pulse inward into the glowing target arc."
+      ></canvas>
+      <div id="sr-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    </main>
+
+    <footer class="footer-bar">
+      <p id="footer-hint" class="footer-hint">Tap anywhere or press Space to snap inward</p>
+      <p id="footer-status" class="footer-status" hidden></p>
+      <div id="daily-share-wrap" class="daily-share-wrap" hidden>
+        <span id="daily-share-summary" class="daily-share-summary">Daily run · Level 01 · Streak 00</span>
+        <button type="button" id="btn-share-daily" class="btn-share-daily">Share Result</button>
+        <span class="daily-retry-hint">Tap or Space to run again</span>
+      </div>
+    </footer>
+
+    <div
+      id="rules-popover"
+      class="rules-popover"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rules-title"
+      hidden
+    >
+      <div class="rules-header">
+        <h2 id="rules-title" class="rules-title">How to Play</h2>
+        <button
+          type="button"
+          id="btn-rules-close"
+          class="hud-btn hud-btn-icon rules-close"
+          aria-label="Close rules"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12" />
+            <path d="M18 6l-12 12" />
+          </svg>
+        </button>
+      </div>
+      <ul class="rules-list">
+        <li><strong>Snap inward:</strong> Tap anywhere or press <kbd>Space</kbd> / <kbd>Enter</kbd> when the orb enters the amber target arc.</li>
+        <li><strong>Sweet spot (+2):</strong> Hitting the inner center notch scores <strong>PERFECT</strong> (+2 streak) with a harmonic chime. Standard hits add <strong>+1</strong>.</li>
+        <li><strong>Daily Challenge:</strong> Same UTC seed worldwide. One miss ends the run so you can share your score or replay from Level 01.</li>
+      </ul>
+      <div class="rules-shortcuts" aria-label="Keyboard shortcuts">
+        <div class="shortcut-item"><kbd>Space</kbd> / <kbd>Enter</kbd><span>Snap / Retry</span></div>
+        <div class="shortcut-item"><kbd>D</kbd><span>Daily Mode</span></div>
+        <div class="shortcut-item"><kbd>M</kbd><span>Mute Sound</span></div>
+        <div class="shortcut-item"><kbd>T</kbd><span>Theme</span></div>
+        <div class="shortcut-item"><kbd>?</kbd> / <kbd>H</kbd><span>Rules</span></div>
+        <div class="shortcut-item"><kbd>Esc</kbd><span>Close</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
