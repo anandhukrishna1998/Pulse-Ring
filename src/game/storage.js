@@ -78,6 +78,9 @@ export function createStorage(storageImpl) {
   const memoryCache = new Map();
 
   function readRaw(key) {
+    if (memoryCache.has(key)) {
+      return memoryCache.get(key);
+    }
     try {
       if (impl && typeof impl.getItem === 'function') {
         const value = impl.getItem(key);
@@ -86,9 +89,9 @@ export function createStorage(storageImpl) {
         }
       }
     } catch {
-      // Fall back to session cache if storage throws (e.g. SecurityError).
+      // Ignore storage read errors (e.g. SecurityError) and fall back to defaults.
     }
-    return memoryCache.has(key) ? memoryCache.get(key) : null;
+    return null;
   }
 
   function writeRaw(key, value) {

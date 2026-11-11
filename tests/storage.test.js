@@ -128,4 +128,51 @@ describe('storage', () => {
       runsCount: 1
     });
   });
+
+  it('prefers updated in-memory fallback over stale stored values when setItem throws QuotaExceededError', () => {
+    const existing = new Map([
+      ['pulse-ring:theme', 'dark'],
+      ['pulse-ring:muted', 'false'],
+      ['pulse-ring:endless', JSON.stringify({ currentLevel: 1, bestLevel: 1, bestStreak: 0 })],
+      ['pulse-ring:daily:2026-11-11', JSON.stringify({
+        bestLevel: 1,
+        bestStreak: 0,
+        lastLevel: 1,
+        lastStreak: 0,
+        lastPerfects: 0,
+        runsCount: 0
+      })]
+    ]);
+    const quotaStorage = {
+      getItem: (k) => (existing.has(k) ? existing.get(k) : null),
+      setItem() {
+        throw new Error('QuotaExceededError');
+      }
+    };
+    const store = createStorage(quotaStorage);
+
+    store.setTheme('light');
+    store.setMuted(true);
+    store.saveEndlessStats({ currentLevel: 5, bestLevel: 5, bestStreak: 9 });
+    store.saveDailyStats('2026-11-11', {
+      bestLevel: 3,
+      bestStreak: 6,
+      lastLevel: 3,
+      lastStreak: 6,
+      lastPerfects: 2,
+      runsCount: 1
+    });
+
+    assert.equal(store.getTheme(true), 'light');
+    assert.equal(store.getMuted(), true);
+    assert.deepEqual(store.getEndlessStats(), { currentLevel: 5, bestLevel: 5, bestStreak: 9 });
+    assert.deepEqual(store.getDailyStats('2026-11-11'), {
+      bestLevel: 3,
+      bestStreak: 6,
+      lastLevel: 3,
+      lastStreak: 6,
+      lastPerfects: 2,
+      runsCount: 1
+    });
+  });
 });
