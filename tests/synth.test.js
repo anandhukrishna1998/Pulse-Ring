@@ -5,6 +5,7 @@ import { createAudioSynth, PENTATONIC_HZ } from '../src/audio/synth.js';
 function createMockAudioContextClass(overrides = {}) {
   const events = [];
   let instances = 0;
+  let lastInstance = null;
 
   class MockAudioContext {
     constructor() {
@@ -15,6 +16,7 @@ function createMockAudioContextClass(overrides = {}) {
       this.state = overrides.initialState ?? 'suspended';
       this.currentTime = overrides.currentTime ?? 1.0;
       this.destination = {};
+      lastInstance = this;
     }
 
     resume() {
@@ -64,7 +66,7 @@ function createMockAudioContextClass(overrides = {}) {
     }
   }
 
-  return { MockAudioContext, events, getInstances: () => instances };
+  return { MockAudioContext, events, getInstances: () => instances, getLastInstance: () => lastInstance };
 }
 
 describe('audio synth', () => {
@@ -304,6 +306,131 @@ describe('audio synth', () => {
       } else {
         globalThis.webkitAudioContext = originalWebkit;
       }
+    }
+  });
+
+  it('plays first-tap audio once async resume() transitions initial suspended state to running and deduplicates resume calls', async () => {
+    const { MockAudioContext, events } = createMockAudioContextClass({
+      initialState: 'suspended',
+      currentTime: 0,
+      resume: (ctx, ev) => {
+        ev.push({ type: 'resume' });
+        return Promise.resolve().then(() => {
+          ctx.state = 'running';
+          ctx.currentTime = 1.25;
+        });
+      }
+    });
+
+    const synth = createAudioSynth({ AudioContextClass: MockAudioContext, muted: false });
+    synth.unlock();
+    synth.playSnap(0, false);
+
+    assert.equal(events.filter((e) => e.type === 'resume').length, 1);
+    assert.equal(events.filter((e) => e.type === 'start').length, 0);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const starts = events.filter((e) => e.type === 'start');
+    const freqs = events.filter((e) => e.type === 'freq');
+    assert.equal(events.filter((e) => e.type === 'resume').length, 1);
+    assert.equal(starts.length, 1);
+    assert.equal(starts[0].t, 1.25);
+    assert.equal(freqs[0].v, PENTATONIC_HZ[0]);
+  });
+
+  it('recovers post-interruption audio when async resume() resolves from interrupted state', async () => {
+    const { MockAudioContext, events, getLastInstance } = createMockAudioContextClass({
+      initialState: 'suspended',
+      resume: (ctx, ev) => {
+        ev.push({ type: 'resume' });
+        return Promise.resolve().then(() => {
+          ctx.state = 'running';
+          ctx.currentTime += 0.5;
+        });
+      }
+    });
+
+    const synth = createAudioSynth({ AudioContextClass: MockAudioContext });
+    synth.unlock();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(getLastInstance().state, 'running');
+
+    getLastInstance().state = 'interrupted';
+    synth.unlock();
+    synth.playLevelClear(1);
+    synth.playMiss();
+
+    assert.equal(events.filter((e) => e.type === 'resume').length, 2);
+    assert.equal(events.filter((e) => e.type === 'start').length, 0);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(events.filter((e) => e.type === 'resume').length, 2);
+    assert.equal(events.filter((e) => e.type === 'start').length, 4);
+    const missFreq = events.filter((e) => e.type === 'freq').at(-1);
+    assert.equal(missFreq.v, 185);
+  });
+
+  it('cancels queued async-resume playback when muted before resolution, stuck suspended, or stale', async () => {
+    // 1. Muted before async resume settles
+    const mutedBeforeResolve = createMockAudioContextClass({
+      initialState: 'suspended',
+      resume: (ctx, ev) => {
+        ev.push({ type: 'resume' });
+        return Promise.resolve().then(() => {
+          ctx.state = 'running';
+        });
+      }
+    });
+    const sMuted = createAudioSynth({ AudioContextClass: mutedBeforeResolve.MockAudioContext });
+    sMuted.unlock();
+    sMuted.playSnap(0, true);
+    sMuted.setMuted(true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(mutedBeforeResolve.events.filter((e) => e.type === 'start').length, 0);
+
+    // 2. Async resume resolves while state remains suspended
+    const stuckSuspended = createMockAudioContextClass({
+      initialState: 'suspended',
+      resume: (_ctx, ev) => {
+        ev.push({ type: 'resume' });
+        return Promise.resolve();
+      }
+    });
+    const sStuck = createAudioSynth({ AudioContextClass: stuckSuspended.MockAudioContext });
+    sStuck.unlock();
+    sStuck.playSnap(1, false);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(stuckSuspended.events.filter((e) => e.type === 'start').length, 0);
+
+    // 3. Resume settles after >300ms stale window
+    let nowMs = 1000;
+    const originalDateNow = Date.now;
+    Date.now = () => nowMs;
+    try {
+      let resolveDelayed;
+      const delayed = createMockAudioContextClass({
+        initialState: 'suspended',
+        resume: (ctx, ev) => {
+          ev.push({ type: 'resume' });
+          return new Promise((resolve) => {
+            resolveDelayed = () => {
+              ctx.state = 'running';
+              resolve();
+            };
+          });
+        }
+      });
+      const sStale = createAudioSynth({ AudioContextClass: delayed.MockAudioContext });
+      sStale.unlock();
+      sStale.playSnap(2, false);
+      nowMs += 301;
+      resolveDelayed();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(delayed.events.filter((e) => e.type === 'start').length, 0);
+    } finally {
+      Date.now = originalDateNow;
     }
   });
 });

@@ -10,6 +10,7 @@ export const PENTATONIC_HZ = Object.freeze([
 ]);
 
 const GAIN_FLOOR = 0.0001;
+const RESUME_REPLAY_WINDOW_MS = 300;
 
 function resolveAudioContextClass(options) {
   if (
@@ -35,18 +36,6 @@ function getPentatonicFreq(streakIndex) {
 
 function getNow(context) {
   return Number.isFinite(context?.currentTime) ? Math.max(0, context.currentTime) : 0;
-}
-
-function safeResume(context) {
-  if (!context || typeof context.resume !== 'function') return;
-  try {
-    const result = context.resume();
-    if (result && typeof result.catch === 'function') {
-      result.catch(() => {});
-    }
-  } catch {
-    // Ignore synchronous resume errors in restricted browser policies.
-  }
 }
 
 function scheduleTone(context, { type = 'sine', freq, endFreq, startTime, duration, peakGain, attack = 0.01 }) {
@@ -84,7 +73,51 @@ function scheduleTone(context, { type = 'sine', freq, endFreq, startTime, durati
 export function createAudioSynth(options = {}) {
   const ContextCtor = resolveAudioContextClass(options);
   let muted = Boolean(options?.muted);
+  let muteEpoch = 0;
   let ctx = null;
+  let pendingResume = null;
+
+  function startResume(context) {
+    if (pendingResume) {
+      return pendingResume;
+    }
+    if (!context || typeof context.resume !== 'function') {
+      return null;
+    }
+
+    let rawResult;
+    try {
+      rawResult = context.resume();
+    } catch {
+      return null;
+    }
+
+    if (context.state == null || context.state === 'running') {
+      if (rawResult && typeof rawResult.catch === 'function') {
+        rawResult.catch(() => {});
+      }
+      return null;
+    }
+
+    if (!rawResult || typeof rawResult.then !== 'function') {
+      return null;
+    }
+
+    let tracked;
+    tracked = Promise.resolve(rawResult)
+      .then(
+        () => true,
+        () => false
+      )
+      .finally(() => {
+        if (pendingResume === tracked) {
+          pendingResume = null;
+        }
+      });
+
+    pendingResume = tracked;
+    return tracked;
+  }
 
   function ensureContext() {
     if (muted || !ContextCtor) {
@@ -104,15 +137,58 @@ export function createAudioSynth(options = {}) {
       return null;
     }
 
+    if (ctx.state == null || ctx.state === 'running') {
+      return ctx;
+    }
+
     if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
-      safeResume(ctx);
+      startResume(ctx);
+      if (ctx.state === 'running') {
+        return ctx;
+      }
     }
 
-    if (ctx.state != null && ctx.state !== 'running') {
-      return null;
+    return null;
+  }
+
+  function runWhenReady(schedule) {
+    const readyCtx = ensureContext();
+    if (readyCtx) {
+      try {
+        schedule(readyCtx);
+      } catch {
+        // Silent fallback if Web Audio node scheduling fails.
+      }
+      return;
     }
 
-    return ctx;
+    if (muted || !ctx || !pendingResume) {
+      return;
+    }
+
+    const targetCtx = ctx;
+    const queuedAt = Date.now();
+    const queuedMuteEpoch = muteEpoch;
+
+    pendingResume.then(
+      (resumed) => {
+        if (
+          resumed &&
+          !muted &&
+          muteEpoch === queuedMuteEpoch &&
+          ctx === targetCtx &&
+          (targetCtx.state == null || targetCtx.state === 'running') &&
+          Date.now() - queuedAt <= RESUME_REPLAY_WINDOW_MS
+        ) {
+          try {
+            schedule(targetCtx);
+          } catch {
+            // Silent fallback if Web Audio node scheduling fails.
+          }
+        }
+      },
+      () => {}
+    );
   }
 
   function unlock() {
@@ -120,7 +196,11 @@ export function createAudioSynth(options = {}) {
   }
 
   function setMuted(nextMuted) {
-    muted = Boolean(nextMuted);
+    const next = Boolean(nextMuted);
+    if (next !== muted) {
+      muteEpoch += 1;
+      muted = next;
+    }
   }
 
   function isMuted() {
@@ -128,12 +208,11 @@ export function createAudioSynth(options = {}) {
   }
 
   function playSnap(streakIndex = 0, isPerfect = false) {
-    const context = ensureContext();
-    if (!context) return;
+    const baseFreq = getPentatonicFreq(streakIndex);
+    const perfect = Boolean(isPerfect);
 
-    try {
+    runWhenReady((context) => {
       const now = getNow(context);
-      const baseFreq = getPentatonicFreq(streakIndex);
 
       scheduleTone(context, {
         type: 'sine',
@@ -144,7 +223,7 @@ export function createAudioSynth(options = {}) {
         attack: 0.008
       });
 
-      if (isPerfect) {
+      if (perfect) {
         scheduleTone(context, {
           type: 'triangle',
           freq: baseFreq * 1.5,
@@ -162,19 +241,15 @@ export function createAudioSynth(options = {}) {
           attack: 0.01
         });
       }
-    } catch {
-      // Silent fallback if Web Audio node scheduling fails.
-    }
+    });
   }
 
   function playLevelClear(level = 1) {
-    const context = ensureContext();
-    if (!context) return;
+    const safeLevel = Number.isFinite(level) ? Math.max(1, Math.floor(level)) : 1;
+    const rootFreq = PENTATONIC_HZ[(safeLevel - 1) % 5];
 
-    try {
+    runWhenReady((context) => {
       const now = getNow(context);
-      const safeLevel = Number.isFinite(level) ? Math.max(1, Math.floor(level)) : 1;
-      const rootFreq = PENTATONIC_HZ[(safeLevel - 1) % 5];
 
       scheduleTone(context, {
         type: 'sine',
@@ -200,16 +275,11 @@ export function createAudioSynth(options = {}) {
         peakGain: 0.09,
         attack: 0.01
       });
-    } catch {
-      // Silent fallback if Web Audio node scheduling fails.
-    }
+    });
   }
 
   function playMiss() {
-    const context = ensureContext();
-    if (!context) return;
-
-    try {
+    runWhenReady((context) => {
       const now = getNow(context);
       scheduleTone(context, {
         type: 'sine',
@@ -220,9 +290,7 @@ export function createAudioSynth(options = {}) {
         peakGain: 0.11,
         attack: 0.012
       });
-    } catch {
-      // Silent fallback if Web Audio node scheduling fails.
-    }
+    });
   }
 
   return {
