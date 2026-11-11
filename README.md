@@ -1,8 +1,10 @@
 # PULSE RING
 
-A zero-dependency, high-DPI HTML5 Canvas precision timing game built with vanilla HTML, CSS, and ES Modules.
+## About
 
-Open the page and play immediately—snap the orbiting pulse inward through concentric rings as it passes each amber target arc.
+**[Play PULSE RING Live →](https://anandhukrishna1998.github.io/Pulse-Ring/)**
+
+A zero-dependency, high-DPI HTML5 Canvas precision timing game built with vanilla HTML, CSS, and ES Modules. Open the live game and play immediately—snap the orbiting pulse inward through concentric rings as it passes each amber target arc.
 
 ## Gameplay & Modes
 
@@ -106,23 +108,3 @@ pulse-ring/
 ├── README.md
 └── index.html                     # Static entry point
 ```
-
-## Deploying to GitHub Pages
-
-All asset references in `index.html`, `styles/main.css`, and `src/` use relative `./` paths, so the game deploys cleanly with zero build steps at both root domains and repository subpaths (`https://<username>.github.io/<repo>/`).
-
-### Option 1: GitHub Actions (Recommended)
-
-The repository includes [`.github/workflows/pages.yml`](./.github/workflows/pages.yml) using `actions/checkout@v4`, `actions/configure-pages@v5`, `actions/upload-pages-artifact@v3`, and `actions/deploy-pages@v4`.
-
-1. Push the repository to GitHub with `main` as your default branch.
-2. Open your repository's **Settings → Pages**.
-3. Under **Build and deployment → Source**, choose **GitHub Actions**.
-4. Push to `main` (or open **Actions → Deploy static content to Pages → Run workflow**) to publish the site.
-
-### Option 2: Deploy from a Branch
-
-1. Push the repository to GitHub.
-2. Open **Settings → Pages**.
-3. Under **Build and deployment → Source**, choose **Deploy from a branch**.
-4. Select your branch (e.g., `main`) and folder **`/ (root)`**, then click **Save**.
