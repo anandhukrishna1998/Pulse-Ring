@@ -15,8 +15,9 @@ A zero-dependency, high-DPI HTML5 Canvas precision timing game built with vanill
 - **Smooth Difficulty Curve:**
   - **Levels 1–2:** `2` concentric rings spinning in the same direction.
   - **Levels 3–5:** `2` rings, `+4%` speed per level, alternating spin directions.
-  - **Levels 6–12:** `3` rings, alternating spin, subtle sinusoidal arc drift and breathing on the outer ring.
-  - **Levels 13+:** `4` rings, sinusoidal drift on the outer two rings (with breathing on the outermost ring), asymptotic speed cap (`3.30 rad/s`), and minimum arc floor (`0.46 rad`).
+  - **Levels 6–12:** `3` rings, alternating spin, sinusoidal arc drift and breathing on the outer ring.
+  - **Levels 13–24:** `4` rings, progressive speed/inner-ring urgency, and expanding drift & breathing to outer 2–3 rings.
+  - **Levels 25+:** `4` rings with full-ring drift & breathing scaling smoothly toward an asymptotic speed cap (`4.45 rad/s`) and minimum arc floor (`0.36 rad`).
   - Frame-rate independent physics (`dt <= 0.05s`) keep orbital speed consistent across 60Hz, 120Hz, and 144Hz displays.
 - **Endless Mode (Default):** Advances level-by-level. Missing retries the current level immediately; progress persists locally under `pulse-ring:endless`.
 - **Daily Challenge (`DAILY` / `D`):** Deterministic UTC daily levels (`YYYY-MM-DD`) seeded via FNV-1a + Mulberry32 (`pulse-ring:<YYYY-MM-DD>:level:<L>`). Starts at Level `01`; missing ends the run, records daily stats under `pulse-ring:daily:<YYYY-MM-DD>`, and reveals a 1-click **Share Result** button alongside instant replay:

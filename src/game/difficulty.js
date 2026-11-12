@@ -1,13 +1,19 @@
 import { createLevelRng } from '../math/prng.js';
 import { normalizeAngle, TWO_PI } from './geometry.js';
 
-export const SPEED_CAP = 3.30;
-export const MIN_ARC_WIDTH = 0.46;
+export const SPEED_CAP = 4.45;
+export const MIN_ARC_WIDTH = 0.36;
 
 const BASE_ARC_WIDTHS = [1.36, 1.26, 1.16, 1.08, 1.00];
 
 function normalizeLevel(level) {
   return Number.isFinite(level) ? Math.max(1, Math.floor(level)) : 1;
+}
+
+function getHighLevelProgress(lvl, halfLife = 32) {
+  if (lvl <= 5) return 0;
+  const x = lvl - 5;
+  return x / (x + halfLife);
 }
 
 /**
@@ -24,6 +30,7 @@ export function getRingCount(level) {
 
 /**
  * Compute smooth, monotonically increasing outer-ring angular speed (rad/s) below SPEED_CAP.
+ * Uses a gradual hyperbolic asymptote above Level 5 so speed keeps scaling meaningfully well past Level 50.
  * @param {number} level
  * @returns {number}
  */
@@ -35,7 +42,18 @@ export function getBaseAngularSpeed(level) {
     return 1.62 * Math.pow(1.04, lvl - 2);
   }
   const speedAt5 = 1.62 * Math.pow(1.04, 3);
-  return SPEED_CAP - (SPEED_CAP - speedAt5) * Math.exp(-0.052 * (lvl - 5));
+  const progress = getHighLevelProgress(lvl, 26);
+  return speedAt5 + (SPEED_CAP - speedAt5) * progress;
+}
+
+/**
+ * Compute per-ring inward angular speed step factor (scales smoothly from +7% to +12% per inner ring).
+ * @param {number} level
+ * @returns {number}
+ */
+export function getInnerSpeedFactor(level) {
+  const lvl = normalizeLevel(level);
+  return 0.07 + 0.05 * getHighLevelProgress(lvl, 32);
 }
 
 /**
@@ -49,7 +67,7 @@ export function getArcWidth(level, ringIndex = 0) {
   const idx = Number.isFinite(ringIndex) ? Math.max(0, Math.floor(ringIndex)) : 0;
   const outerWidth = lvl <= 5
     ? BASE_ARC_WIDTHS[lvl - 1]
-    : MIN_ARC_WIDTH + (1.00 - MIN_ARC_WIDTH) * Math.exp(-0.095 * (lvl - 5));
+    : MIN_ARC_WIDTH + (1.00 - MIN_ARC_WIDTH) * (22 / (22 + (lvl - 5)));
   return Math.max(MIN_ARC_WIDTH, outerWidth - 0.04 * idx);
 }
 
@@ -101,30 +119,40 @@ export function generateLevel(level, options = {}) {
   const rng = createLevelRng(mode, lvl, seedKey);
   const ringCount = getRingCount(lvl);
   const baseSpeed = getBaseAngularSpeed(lvl);
+  const innerSpeedFactor = getInnerSpeedFactor(lvl);
   const radiusRatios = computeRadiusRatios(ringCount);
+  const highProgress = getHighLevelProgress(lvl, 32);
 
   const rings = radiusRatios.map((radiusRatio, index) => {
-    const angularSpeed = baseSpeed * (1 + 0.07 * index);
+    const angularSpeed = baseSpeed * (1 + innerSpeedFactor * index);
     const direction = lvl <= 2 ? 1 : (index % 2 === 0 ? 1 : -1);
     const baseArcCenter = normalizeAngle(rng() * TWO_PI);
     const baseArcWidth = getArcWidth(lvl, index);
 
-    const isOuterDriftRing = lvl >= 6 && (index === 0 || (ringCount >= 4 && index === 1));
+    const driftingRingCap =
+      lvl < 6 ? 0
+        : lvl < 13 ? 1
+          : lvl < 18 ? 2
+            : lvl < 25 ? 3
+              : ringCount;
+    const isDriftRing = index < driftingRingCap;
     let driftAmplitude = 0;
     let driftFrequency = 0;
     let driftPhase = 0;
     let breatheAmplitude = 0;
 
-    if (isOuterDriftRing) {
+    if (isDriftRing) {
+      const ringDamping = Math.max(0.55, 1 - 0.14 * index);
       if (index === 0) {
-        driftAmplitude = 0.24 + rng() * 0.14;
-        driftFrequency = 0.45 + rng() * 0.25;
+        driftAmplitude = (0.24 + rng() * 0.14) * (1 + 0.45 * highProgress);
+        driftFrequency = (0.45 + rng() * 0.25) * (1 + 0.75 * highProgress);
         driftPhase = rng() * TWO_PI;
-        breatheAmplitude = 0.08;
+        breatheAmplitude = 0.08 + 0.06 * highProgress;
       } else {
-        driftAmplitude = 0.16 + rng() * 0.08;
-        driftFrequency = 0.40 + rng() * 0.20;
+        driftAmplitude = (0.16 + rng() * 0.08) * ringDamping * (1 + 0.40 * highProgress);
+        driftFrequency = (0.40 + rng() * 0.20) * (1 + 0.70 * highProgress);
         driftPhase = rng() * TWO_PI;
+        breatheAmplitude = 0.05 + 0.05 * highProgress;
       }
     }
 

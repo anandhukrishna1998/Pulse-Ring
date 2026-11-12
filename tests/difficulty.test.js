@@ -48,16 +48,19 @@ describe('difficulty progression', () => {
     }
   });
 
-  it('keeps arc width above MIN_ARC_WIDTH even at extreme levels', () => {
+  it('keeps arc width narrowing well into high levels and above MIN_ARC_WIDTH', () => {
     assert.equal(getArcWidth(1, 0), 1.36);
     assert.equal(getArcWidth(5, 0), 1.0);
     assert.ok(getArcWidth(1, 0) > getArcWidth(2, 0));
     assert.ok(getArcWidth(5, 0) > getArcWidth(5, 1));
     assert.ok(getArcWidth(6, 0) < getArcWidth(5, 0));
+    assert.ok(getArcWidth(15, 3) > getArcWidth(25, 3));
+    assert.ok(getArcWidth(25, 3) > getArcWidth(40, 3));
+    assert.ok(getArcWidth(40, 3) > getArcWidth(60, 3));
     assert.ok(getArcWidth(100, 3) >= MIN_ARC_WIDTH);
   });
 
-  it('sets same direction on L1-2, alternating spin on L3+, and outer drift/breathing on L6+', () => {
+  it('sets same direction on L1-2, alternating spin on L3+, and escalating drift/breathing on L6+', () => {
     const l1 = generateLevel(1, { mode: 'daily', seedKey: '2026-11-11' });
     assert.deepEqual(l1.rings.map((r) => r.direction), [1, 1]);
     assert.equal(l1.rings[0].driftAmplitude, 0);
@@ -85,23 +88,40 @@ describe('difficulty progression', () => {
     assert.equal(l13.ringCount, 4);
     assert.equal(l13.rings.length, 4);
     assert.deepEqual(l13.rings.map((r) => r.direction), [1, -1, 1, -1]);
+    assert.ok(l13.rings[0].driftAmplitude > 0 && l13.rings[1].driftAmplitude > 0);
     assert.equal(l13.rings[3].driftAmplitude, 0);
+
+    const l25 = generateLevel(25, { mode: 'daily', seedKey: '2026-11-11' });
+    assert.ok(l25.rings.every((r) => r.driftAmplitude > 0 && r.breatheAmplitude > 0));
   });
 
-  it('computes descending radiusRatio in [0.38, 0.94] and inner ring speed offset', () => {
-    for (const lvl of [1, 6, 13]) {
+  it('computes descending radiusRatio in [0.38, 0.94], rising inner ring speed factor, and continuous progression past L40', () => {
+    let prevInnerFactor = 0;
+    for (const lvl of [1, 6, 13, 30, 50]) {
       const generated = generateLevel(lvl, { mode: 'endless', seedKey: 'runner' });
       const baseSpeed = getBaseAngularSpeed(lvl);
+      const innerFactor = generated.rings[1].angularSpeed / baseSpeed - 1;
+      assert.ok(innerFactor >= prevInnerFactor);
+      prevInnerFactor = innerFactor;
+
       for (let i = 0; i < generated.rings.length; i++) {
         const ring = generated.rings[i];
         assert.equal(ring.index, i);
         assert.ok(ring.radiusRatio >= 0.38 && ring.radiusRatio <= 0.94);
         if (i > 0) {
           assert.ok(ring.radiusRatio < generated.rings[i - 1].radiusRatio);
+          assert.ok(ring.angularSpeed > generated.rings[i - 1].angularSpeed);
         }
-        assert.ok(Math.abs(ring.angularSpeed - baseSpeed * (1 + 0.07 * i)) < 1e-12);
+        assert.ok(Math.abs(ring.angularSpeed - baseSpeed * (1 + innerFactor * i)) < 1e-12);
       }
     }
+
+    // Ensure speed still gains meaningful momentum between L20 -> L40 -> L80 (never prematurely flat)
+    const s20 = getBaseAngularSpeed(20);
+    const s40 = getBaseAngularSpeed(40);
+    const s80 = getBaseAngularSpeed(80);
+    assert.ok(s40 - s20 >= 0.45, `Expected noticeable L20->L40 speed gain, got ${s40 - s20}`);
+    assert.ok(s80 - s40 >= 0.35, `Expected noticeable L40->L80 speed gain, got ${s80 - s40}`);
   });
 
   it('generates identical daily levels for the same date and keeps orb lead-in fair', () => {
