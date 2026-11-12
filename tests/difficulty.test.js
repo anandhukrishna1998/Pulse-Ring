@@ -93,9 +93,20 @@ describe('difficulty progression', () => {
 
     const l25 = generateLevel(25, { mode: 'daily', seedKey: '2026-11-11' });
     assert.ok(l25.rings.every((r) => r.driftAmplitude > 0 && r.breatheAmplitude > 0));
+
+    // Across high levels (L16+), starting spin direction varies deterministically while inner rings still alternate
+    const startDirs = new Set();
+    for (let lvl = 16; lvl <= 30; lvl++) {
+      const gen = generateLevel(lvl, { mode: 'daily', seedKey: '2026-11-11' });
+      startDirs.add(gen.rings[0].direction);
+      for (let i = 1; i < gen.rings.length; i++) {
+        assert.notEqual(gen.rings[i].direction, gen.rings[i - 1].direction);
+      }
+    }
+    assert.deepEqual([...startDirs].sort(), [-1, 1]);
   });
 
-  it('computes descending radiusRatio in [0.38, 0.94], rising inner ring speed factor, and continuous progression past L40', () => {
+  it('computes descending radiusRatio in [0.38, 0.94], rising inner ring speed factor, and strong progression past L40', () => {
     let prevInnerFactor = 0;
     for (const lvl of [1, 6, 13, 30, 50]) {
       const generated = generateLevel(lvl, { mode: 'endless', seedKey: 'runner' });
@@ -115,13 +126,17 @@ describe('difficulty progression', () => {
         assert.ok(Math.abs(ring.angularSpeed - baseSpeed * (1 + innerFactor * i)) < 1e-12);
       }
     }
+    assert.ok(prevInnerFactor > 0.11, `Expected strong inner-ring speed step at L50, got ${prevInnerFactor}`);
 
-    // Ensure speed still gains meaningful momentum between L20 -> L40 -> L80 (never prematurely flat)
+    // Ensure speed scales briskly into high levels (L20 -> L40 -> L80)
     const s20 = getBaseAngularSpeed(20);
     const s40 = getBaseAngularSpeed(40);
     const s80 = getBaseAngularSpeed(80);
-    assert.ok(s40 - s20 >= 0.45, `Expected noticeable L20->L40 speed gain, got ${s40 - s20}`);
-    assert.ok(s80 - s40 >= 0.35, `Expected noticeable L40->L80 speed gain, got ${s80 - s40}`);
+    assert.ok(s40 >= 3.9, `Expected challenging speed >= 3.9 rad/s by L40, got ${s40}`);
+    assert.ok(s40 - s20 >= 0.75, `Expected strong L20->L40 speed gain, got ${s40 - s20}`);
+    assert.ok(s80 - s40 >= 0.55, `Expected strong L40->L80 speed gain, got ${s80 - s40}`);
+    assert.ok(getArcWidth(80, 3) < getArcWidth(40, 3), 'Inner arc should continue narrowing past L40');
+    assert.ok(getArcWidth(80, 3) < 0.36, 'High-level precision arcs should tighten below 0.36 rad');
   });
 
   it('generates identical daily levels for the same date and keeps orb lead-in fair', () => {

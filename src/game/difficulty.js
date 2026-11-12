@@ -1,8 +1,8 @@
 import { createLevelRng } from '../math/prng.js';
 import { normalizeAngle, TWO_PI } from './geometry.js';
 
-export const SPEED_CAP = 4.45;
-export const MIN_ARC_WIDTH = 0.36;
+export const SPEED_CAP = 5.15;
+export const MIN_ARC_WIDTH = 0.32;
 
 const BASE_ARC_WIDTHS = [1.36, 1.26, 1.16, 1.08, 1.00];
 
@@ -10,7 +10,7 @@ function normalizeLevel(level) {
   return Number.isFinite(level) ? Math.max(1, Math.floor(level)) : 1;
 }
 
-function getHighLevelProgress(lvl, halfLife = 32) {
+function getHighLevelProgress(lvl, halfLife = 24) {
   if (lvl <= 5) return 0;
   const x = lvl - 5;
   return x / (x + halfLife);
@@ -30,7 +30,7 @@ export function getRingCount(level) {
 
 /**
  * Compute smooth, monotonically increasing outer-ring angular speed (rad/s) below SPEED_CAP.
- * Uses a gradual hyperbolic asymptote above Level 5 so speed keeps scaling meaningfully well past Level 50.
+ * Ramps gently out of Level 5 while accelerating briskly through Levels 10-50+ toward SPEED_CAP.
  * @param {number} level
  * @returns {number}
  */
@@ -42,18 +42,19 @@ export function getBaseAngularSpeed(level) {
     return 1.62 * Math.pow(1.04, lvl - 2);
   }
   const speedAt5 = 1.62 * Math.pow(1.04, 3);
-  const progress = getHighLevelProgress(lvl, 26);
-  return speedAt5 + (SPEED_CAP - speedAt5) * progress;
+  const curvedX = Math.pow(lvl - 5, 1.18);
+  const ramp = curvedX / (curvedX + 36);
+  return speedAt5 + (SPEED_CAP - speedAt5) * ramp;
 }
 
 /**
- * Compute per-ring inward angular speed step factor (scales smoothly from +7% to +12% per inner ring).
+ * Compute per-ring inward angular speed step factor (scales smoothly from +7% to +14% per inner ring).
  * @param {number} level
  * @returns {number}
  */
 export function getInnerSpeedFactor(level) {
   const lvl = normalizeLevel(level);
-  return 0.07 + 0.05 * getHighLevelProgress(lvl, 32);
+  return 0.07 + 0.07 * getHighLevelProgress(lvl, 24);
 }
 
 /**
@@ -67,7 +68,7 @@ export function getArcWidth(level, ringIndex = 0) {
   const idx = Number.isFinite(ringIndex) ? Math.max(0, Math.floor(ringIndex)) : 0;
   const outerWidth = lvl <= 5
     ? BASE_ARC_WIDTHS[lvl - 1]
-    : MIN_ARC_WIDTH + (1.00 - MIN_ARC_WIDTH) * (22 / (22 + (lvl - 5)));
+    : MIN_ARC_WIDTH + (1.00 - MIN_ARC_WIDTH) * (18 / (18 + (lvl - 5)));
   return Math.max(MIN_ARC_WIDTH, outerWidth - 0.04 * idx);
 }
 
@@ -121,11 +122,12 @@ export function generateLevel(level, options = {}) {
   const baseSpeed = getBaseAngularSpeed(lvl);
   const innerSpeedFactor = getInnerSpeedFactor(lvl);
   const radiusRatios = computeRadiusRatios(ringCount);
-  const highProgress = getHighLevelProgress(lvl, 32);
+  const highProgress = getHighLevelProgress(lvl, 24);
+  const firstDirection = lvl <= 15 ? 1 : (rng() < 0.5 ? 1 : -1);
 
   const rings = radiusRatios.map((radiusRatio, index) => {
     const angularSpeed = baseSpeed * (1 + innerSpeedFactor * index);
-    const direction = lvl <= 2 ? 1 : (index % 2 === 0 ? 1 : -1);
+    const direction = lvl <= 2 ? 1 : (index % 2 === 0 ? firstDirection : -firstDirection);
     const baseArcCenter = normalizeAngle(rng() * TWO_PI);
     const baseArcWidth = getArcWidth(lvl, index);
 
@@ -144,15 +146,15 @@ export function generateLevel(level, options = {}) {
     if (isDriftRing) {
       const ringDamping = Math.max(0.55, 1 - 0.14 * index);
       if (index === 0) {
-        driftAmplitude = (0.24 + rng() * 0.14) * (1 + 0.45 * highProgress);
-        driftFrequency = (0.45 + rng() * 0.25) * (1 + 0.75 * highProgress);
+        driftAmplitude = (0.24 + rng() * 0.14) * (1 + 0.50 * highProgress);
+        driftFrequency = (0.45 + rng() * 0.25) * (1 + 1.05 * highProgress);
         driftPhase = rng() * TWO_PI;
-        breatheAmplitude = 0.08 + 0.06 * highProgress;
+        breatheAmplitude = 0.08 + 0.08 * highProgress;
       } else {
-        driftAmplitude = (0.16 + rng() * 0.08) * ringDamping * (1 + 0.40 * highProgress);
-        driftFrequency = (0.40 + rng() * 0.20) * (1 + 0.70 * highProgress);
+        driftAmplitude = (0.16 + rng() * 0.08) * ringDamping * (1 + 0.45 * highProgress);
+        driftFrequency = (0.40 + rng() * 0.20) * (1 + 0.95 * highProgress);
         driftPhase = rng() * TWO_PI;
-        breatheAmplitude = 0.05 + 0.05 * highProgress;
+        breatheAmplitude = 0.06 + 0.06 * highProgress;
       }
     }
 

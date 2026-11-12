@@ -2,7 +2,7 @@
 
 ## About
 
-**[Play PULSE RING Live →](https://anandhukrishna1998.github.io/Pulse-Ring/)**
+**[Play PULSE RING Live →](https://pulse-ring.anandhukrishna091.workers.dev/)**
 
 A zero-dependency, high-DPI HTML5 Canvas precision timing game built with vanilla HTML, CSS, and ES Modules. Open the live game and play immediately—snap the orbiting pulse inward through concentric rings as it passes each amber target arc.
 
@@ -16,8 +16,8 @@ A zero-dependency, high-DPI HTML5 Canvas precision timing game built with vanill
   - **Levels 1–2:** `2` concentric rings spinning in the same direction.
   - **Levels 3–5:** `2` rings, `+4%` speed per level, alternating spin directions.
   - **Levels 6–12:** `3` rings, alternating spin, sinusoidal arc drift and breathing on the outer ring.
-  - **Levels 13–24:** `4` rings, progressive speed/inner-ring urgency, and expanding drift & breathing to outer 2–3 rings.
-  - **Levels 25+:** `4` rings with full-ring drift & breathing scaling smoothly toward an asymptotic speed cap (`4.45 rad/s`) and minimum arc floor (`0.36 rad`).
+  - **Levels 13–24:** `4` rings, progressive speed & inner-ring gear-ups, expanding drift & breathing across the outer 2–3 rings, and randomized starting spin polarity from Level `16+`.
+  - **Levels 25+:** `4` rings with full-ring drift & breathing accelerating smoothly toward an asymptotic speed cap (`5.15 rad/s` outer, up to `+14%` per inward ring) and a razor-crisp `0.32 rad` (`18.3°`) precision arc floor.
   - Frame-rate independent physics (`dt <= 0.05s`) keep orbital speed consistent across 60Hz, 120Hz, and 144Hz displays.
 - **Endless Mode (Default):** Advances level-by-level. Missing retries the current level immediately; progress persists locally under `pulse-ring:endless`.
 - **Daily Challenge (`DAILY` / `D`):** Deterministic UTC daily levels (`YYYY-MM-DD`) seeded via FNV-1a + Mulberry32 (`pulse-ring:<YYYY-MM-DD>:level:<L>`). Starts at Level `01`; missing ends the run, records daily stats under `pulse-ring:daily:<YYYY-MM-DD>`, and reveals a 1-click **Share Result** button alongside instant replay:
@@ -40,11 +40,11 @@ A zero-dependency, high-DPI HTML5 Canvas precision timing game built with vanill
 ## Visuals, Audio & Accessibility
 
 - **Light & Dark Parity:** Defaults to the OS `prefers-color-scheme` on first visit and persists manual choices in `pulse-ring:theme` (`#0F1117` dark ground / `#F6F4EF` light ground).
-- **Procedural Web Audio Synth:** Synthesizes all audio in real time via `AudioContext` (`sine` + `triangle` oscillators with exponential gain envelopes)—stepping up a C-major pentatonic ladder (`C5`–`E6`), adding an octave-fifth shimmer on `PERFECT`, an ascending chord on level clear, and a `185Hz → 120Hz` sweep on miss (`pulse-ring:muted`).
+- **Procedural Web Audio Synth:** Synthesizes all audio in real time via `AudioContext` (`sine` + `triangle` oscillators with exponential gain envelopes)—stepping up a C-major pentatonic ladder (`C5`–`E6`), adding an octave-fifth shimmer on `PERFECT`, an ascending chord on level clear, and a `185Hz → 120Hz` sweep on miss (`pulse-ring:muted`). Uses `navigator.audioSession.type = 'playback'` plus silent-buffer/gesture priming for iPhone Safari compatibility.
 - **Accessibility & Reduced Motion:**
   - Native `<button>` HUD controls with `44px × 44px` minimum targets, visible `:focus-visible` outlines, and pointer-blur handling so clicking HUD toggles never steals `Space` from gameplay.
   - Polite `aria-live="polite"` announcements for level advances, perfect snaps, misses, mode switches, and clipboard feedback.
-  - Mobile-safe `100dvh` viewport with `touch-action: none` and `env(safe-area-inset-*)` padding.
+  - Fixed viewport container (`100dvh` / `visualViewport` `--app-height`) with `env(safe-area-inset-*)` padding and `touch-action: none` gameplay surface so desktop and iPhone screens fit cleanly without scrolling.
   - Automatic pause on hidden browser tabs (`visibilitychange`) or when the Rules dialog is open.
   - Honors `prefers-reduced-motion: reduce` by removing orb trails, snap glide tweening, and CSS transitions while keeping gameplay physics unchanged.
   - Safe `localStorage` wrapper falls back cleanly to in-memory state in restricted/private browsing contexts.
