@@ -113,12 +113,26 @@ export function bootstrapPulseRing(options = {}) {
     reducedMotion = false;
   }
 
+  let initialLevel = null;
+  try {
+    if (win?.location?.search) {
+      const sp = new URLSearchParams(win.location.search);
+      const raw = parseInt(sp.get('level') || '', 10);
+      if (Number.isFinite(raw) && raw >= 1) {
+        initialLevel = raw;
+      }
+    }
+  } catch {
+    initialLevel = null;
+  }
+
   const controller =
     options?.controller ??
     createGameController({
       storage,
       dateKeyProvider: options?.dateKeyProvider,
-      endlessSeed: options?.endlessSeed
+      endlessSeed: options?.endlessSeed,
+      initialLevel: options?.initialLevel ?? initialLevel
     });
 
   const synth = options?.synth ?? createAudioSynth({ muted, navigator: nav });

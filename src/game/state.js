@@ -28,15 +28,19 @@ export function createGameController(options = {}) {
   const initialEndless = storage.getEndlessStats();
   const initialDailyKey = dateKeyProvider();
   const initialDailyStats = storage.getDailyStats(initialDailyKey);
+  const startingLevel =
+    Number.isFinite(options?.initialLevel) && options.initialLevel >= 1
+      ? Math.floor(options.initialLevel)
+      : initialEndless.currentLevel;
 
   const state = {
     mode: 'endless',
     phase: 'playing',
     paused: false,
-    level: initialEndless.currentLevel,
+    level: startingLevel,
     streak: 0,
     runBestStreak: 0,
-    bestLevel: Math.max(initialEndless.bestLevel, initialEndless.currentLevel),
+    bestLevel: Math.max(initialEndless.bestLevel, startingLevel),
     bestStreak: initialEndless.bestStreak,
     runPerfects: 0,
     hasSnappedOnce: false,
@@ -114,7 +118,7 @@ export function createGameController(options = {}) {
     }
   }
 
-  loadLevel(initialEndless.currentLevel);
+  loadLevel(startingLevel);
 
   function step(dtSeconds) {
     if (state.paused) return;

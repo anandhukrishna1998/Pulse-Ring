@@ -157,6 +157,57 @@ describe('difficulty progression', () => {
     }
   });
 
+  it('strictly validates difficulty progression across all levels 1 through 100', () => {
+    let prevSpeed = 0;
+    let prevOuterArc = Infinity;
+
+    for (let lvl = 1; lvl <= 100; lvl++) {
+      const rc = getRingCount(lvl);
+      if (lvl <= 5) assert.equal(rc, 2, `L${lvl} expected 2 rings`);
+      else if (lvl <= 12) assert.equal(rc, 3, `L${lvl} expected 3 rings`);
+      else assert.equal(rc, 4, `L${lvl} expected 4 rings`);
+
+      const speed = getBaseAngularSpeed(lvl);
+      assert.ok(speed > prevSpeed, `L${lvl} speed ${speed} must strictly exceed previous ${prevSpeed}`);
+      assert.ok(speed < SPEED_CAP, `L${lvl} speed ${speed} must stay below cap ${SPEED_CAP}`);
+      prevSpeed = speed;
+
+      const outerArc = getArcWidth(lvl, 0);
+      assert.ok(outerArc < prevOuterArc, `L${lvl} outer arc ${outerArc} must narrow vs previous ${prevOuterArc}`);
+      assert.ok(outerArc >= MIN_ARC_WIDTH, `L${lvl} outer arc ${outerArc} must stay above floor ${MIN_ARC_WIDTH}`);
+      prevOuterArc = outerArc;
+
+      for (let r = 0; r < rc; r++) {
+        const arc = getArcWidth(lvl, r);
+        assert.ok(arc >= MIN_ARC_WIDTH, `L${lvl} ring ${r} arc ${arc} must stay above floor ${MIN_ARC_WIDTH}`);
+        if (r > 0) {
+          assert.ok(arc < getArcWidth(lvl, r - 1), `L${lvl} ring ${r} arc must be tighter than ring ${r - 1}`);
+        }
+      }
+
+      const levelDef = generateLevel(lvl, { mode: 'daily', seedKey: '2026-11-14' });
+      assert.equal(levelDef.rings.length, rc);
+
+      const expectedDriftRings = lvl < 6 ? 0 : lvl < 13 ? 1 : lvl < 18 ? 2 : lvl < 25 ? 3 : rc;
+      const actualDriftRings = levelDef.rings.filter((r) => r.driftAmplitude > 0).length;
+      assert.equal(actualDriftRings, expectedDriftRings, `L${lvl} expected ${expectedDriftRings} drift rings`);
+
+      for (let r = 1; r < rc; r++) {
+        if (lvl >= 3) {
+          assert.notEqual(
+            levelDef.rings[r].direction,
+            levelDef.rings[r - 1].direction,
+            `L${lvl} ring ${r} and ${r - 1} must alternate spin direction`
+          );
+        }
+        assert.ok(
+          levelDef.rings[r].angularSpeed > levelDef.rings[r - 1].angularSpeed,
+          `L${lvl} ring ${r} angular speed must exceed ring ${r - 1}`
+        );
+      }
+    }
+  });
+
   it('handles default options, steady rings in computeRingArcAtTime, and level lower bounds safely', () => {
     const defaultA = generateLevel(1);
     const defaultB = generateLevel(1, { mode: 'endless', seedKey: '' });
