@@ -12,12 +12,11 @@ A zero-dependency, high-DPI HTML5 Canvas precision timing game built with vanill
   - **Hit:** Snap inside the amber target arc (`+1` streak) to advance to the next inner ring or clear the level.
   - **Perfect:** Snap inside the inner center notch (`28%` of the half-arc) for a `+2` streak bonus, harmonic shimmer chime, and double ripple.
   - **Miss:** Resets the current streak to `0` (`160ms` bounce guard before instant 1-tap/`Space` retry).
-- **Smooth Difficulty Curve:**
-  - **Levels 1–2:** `2` concentric rings spinning in the same direction.
-  - **Levels 3–5:** `2` rings, `+4%` speed per level, alternating spin directions.
-  - **Levels 6–12:** `3` rings, alternating spin, sinusoidal arc drift and breathing on the outer ring.
-  - **Levels 13–24:** `4` rings, progressive speed & inner-ring gear-ups, expanding drift & breathing across the outer 2–3 rings, and randomized starting spin polarity from Level `16+`.
-  - **Levels 25+:** `4` rings with full-ring drift & breathing accelerating smoothly toward an asymptotic speed cap (`5.15 rad/s` outer, up to `+14%` per inward ring) and a razor-crisp `0.32 rad` (`18.3°`) precision arc floor.
+- **Accelerated Difficulty Curve:**
+  - **Levels 1–2:** `2` concentric rings, gentle speed (`1.55`–`1.68 rad/s`), generous target arcs (`1.36`–`1.22 rad`), spinning in the same direction.
+  - **Levels 3–6:** `3` concentric rings, alternating spin directions, brisk `+6.5%` speed gain per level, with dynamic target arc drift and breathing starting at Level `4`.
+  - **Levels 7–17:** `4` concentric rings, escalating multi-ring drift & breathing (2–3 rings), inner-ring gear-ups (`+7%` to `+14%`), and deterministic spin polarity variations from Level `11+`.
+  - **Levels 18+:** `4` concentric rings with all rings drifting & breathing, accelerating toward a high-intensity speed cap (`5.25 rad/s` outer, over `7.4 rad/s` innermost) and a razor-crisp `0.32 rad` (`18.3°`) precision arc floor.
   - Frame-rate independent physics (`dt <= 0.05s`) keep orbital speed consistent across 60Hz, 120Hz, and 144Hz displays.
 - **Endless Mode (Default):** Advances level-by-level. Missing retries the current level immediately; progress persists locally under `pulse-ring:endless`.
 - **Daily Challenge (`DAILY` / `D`):** Deterministic UTC daily levels (`YYYY-MM-DD`) seeded via FNV-1a + Mulberry32 (`pulse-ring:<YYYY-MM-DD>:level:<L>`). Starts at Level `01`; missing ends the run, records daily stats under `pulse-ring:daily:<YYYY-MM-DD>`, and reveals a 1-click **Share Result** button alongside instant replay:

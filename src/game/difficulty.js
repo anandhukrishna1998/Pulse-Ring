@@ -1,18 +1,18 @@
 import { createLevelRng } from '../math/prng.js';
 import { normalizeAngle, TWO_PI } from './geometry.js';
 
-export const SPEED_CAP = 5.15;
+export const SPEED_CAP = 5.25;
 export const MIN_ARC_WIDTH = 0.32;
 
-const BASE_ARC_WIDTHS = [1.36, 1.26, 1.16, 1.08, 1.00];
+const BASE_ARC_WIDTHS = [1.36, 1.22, 1.10, 1.00, 0.92, 0.84];
 
 function normalizeLevel(level) {
   return Number.isFinite(level) ? Math.max(1, Math.floor(level)) : 1;
 }
 
-function getHighLevelProgress(lvl, halfLife = 24) {
-  if (lvl <= 5) return 0;
-  const x = lvl - 5;
+function getHighLevelProgress(lvl, halfLife = 20) {
+  if (lvl <= 2) return 0;
+  const x = lvl - 2;
   return x / (x + halfLife);
 }
 
@@ -23,28 +23,28 @@ function getHighLevelProgress(lvl, halfLife = 24) {
  */
 export function getRingCount(level) {
   const lvl = normalizeLevel(level);
-  if (lvl <= 5) return 2;
-  if (lvl <= 12) return 3;
+  if (lvl <= 2) return 2;
+  if (lvl <= 6) return 3;
   return 4;
 }
 
 /**
  * Compute smooth, monotonically increasing outer-ring angular speed (rad/s) below SPEED_CAP.
- * Ramps gently out of Level 5 while accelerating briskly through Levels 10-50+ toward SPEED_CAP.
+ * Escalates briskly from Level 2 onward (+6.5% to +8% per level in early game, then hyperbolic ramp to SPEED_CAP).
  * @param {number} level
  * @returns {number}
  */
 export function getBaseAngularSpeed(level) {
   const lvl = normalizeLevel(level);
   if (lvl === 1) return 1.55;
-  if (lvl === 2) return 1.62;
-  if (lvl <= 5) {
-    return 1.62 * Math.pow(1.04, lvl - 2);
+  if (lvl === 2) return 1.68;
+  if (lvl <= 6) {
+    return 1.68 * Math.pow(1.065, lvl - 2);
   }
-  const speedAt5 = 1.62 * Math.pow(1.04, 3);
-  const curvedX = Math.pow(lvl - 5, 1.18);
-  const ramp = curvedX / (curvedX + 36);
-  return speedAt5 + (SPEED_CAP - speedAt5) * ramp;
+  const speedAt6 = 1.68 * Math.pow(1.065, 4);
+  const curvedX = Math.pow(lvl - 6, 1.15);
+  const ramp = curvedX / (curvedX + 28);
+  return speedAt6 + (SPEED_CAP - speedAt6) * ramp;
 }
 
 /**
@@ -54,7 +54,7 @@ export function getBaseAngularSpeed(level) {
  */
 export function getInnerSpeedFactor(level) {
   const lvl = normalizeLevel(level);
-  return 0.07 + 0.07 * getHighLevelProgress(lvl, 24);
+  return 0.07 + 0.07 * getHighLevelProgress(lvl, 20);
 }
 
 /**
@@ -66,9 +66,9 @@ export function getInnerSpeedFactor(level) {
 export function getArcWidth(level, ringIndex = 0) {
   const lvl = normalizeLevel(level);
   const idx = Number.isFinite(ringIndex) ? Math.max(0, Math.floor(ringIndex)) : 0;
-  const outerWidth = lvl <= 5
+  const outerWidth = lvl <= 6
     ? BASE_ARC_WIDTHS[lvl - 1]
-    : MIN_ARC_WIDTH + (1.00 - MIN_ARC_WIDTH) * (18 / (18 + (lvl - 5)));
+    : MIN_ARC_WIDTH + (0.84 - MIN_ARC_WIDTH) * (18 / (18 + (lvl - 6)));
   return Math.max(MIN_ARC_WIDTH, outerWidth - 0.04 * idx);
 }
 
@@ -122,8 +122,8 @@ export function generateLevel(level, options = {}) {
   const baseSpeed = getBaseAngularSpeed(lvl);
   const innerSpeedFactor = getInnerSpeedFactor(lvl);
   const radiusRatios = computeRadiusRatios(ringCount);
-  const highProgress = getHighLevelProgress(lvl, 24);
-  const firstDirection = lvl <= 15 ? 1 : (rng() < 0.5 ? 1 : -1);
+  const highProgress = getHighLevelProgress(lvl, 20);
+  const firstDirection = lvl <= 10 ? 1 : (rng() < 0.5 ? 1 : -1);
 
   const rings = radiusRatios.map((radiusRatio, index) => {
     const angularSpeed = baseSpeed * (1 + innerSpeedFactor * index);
@@ -132,10 +132,10 @@ export function generateLevel(level, options = {}) {
     const baseArcWidth = getArcWidth(lvl, index);
 
     const driftingRingCap =
-      lvl < 6 ? 0
-        : lvl < 13 ? 1
-          : lvl < 18 ? 2
-            : lvl < 25 ? 3
+      lvl < 4 ? 0
+        : lvl < 7 ? 1
+          : lvl < 12 ? 2
+            : lvl < 18 ? 3
               : ringCount;
     const isDriftRing = index < driftingRingCap;
     let driftAmplitude = 0;

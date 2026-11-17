@@ -15,16 +15,18 @@ describe('difficulty progression', () => {
   it('assigns ring counts smoothly across progression tiers', () => {
     assert.equal(getRingCount(1), 2);
     assert.equal(getRingCount(2), 2);
-    assert.equal(getRingCount(5), 2);
+    assert.equal(getRingCount(3), 3);
+    assert.equal(getRingCount(5), 3);
     assert.equal(getRingCount(6), 3);
-    assert.equal(getRingCount(10), 3);
-    assert.equal(getRingCount(11), 3);
-    assert.equal(getRingCount(12), 3);
+    assert.equal(getRingCount(7), 4);
+    assert.equal(getRingCount(10), 4);
+    assert.equal(getRingCount(11), 4);
+    assert.equal(getRingCount(12), 4);
     assert.equal(getRingCount(13), 4);
     assert.equal(getRingCount(30), 4);
   });
 
-  it('scales +4% per level across levels 3-5 and caps asymptotically below SPEED_CAP', () => {
+  it('scales briskly across early levels and caps asymptotically below SPEED_CAP', () => {
     const s1 = getBaseAngularSpeed(1);
     const s2 = getBaseAngularSpeed(2);
     const s3 = getBaseAngularSpeed(3);
@@ -33,11 +35,11 @@ describe('difficulty progression', () => {
     const s6 = getBaseAngularSpeed(6);
 
     assert.equal(s1, 1.55);
-    assert.equal(s2, 1.62);
-    assert.ok(Math.abs(s3 / s2 - 1.04) < 1e-6);
-    assert.ok(Math.abs(s4 / s3 - 1.04) < 1e-6);
-    assert.ok(Math.abs(s5 / s4 - 1.04) < 1e-6);
-    assert.ok(s6 > s5 && s6 - s5 < 0.1, `L5->L6 speed step ${s6 - s5} should stay smooth`);
+    assert.equal(s2, 1.68);
+    assert.ok(Math.abs(s3 / s2 - 1.065) < 1e-6);
+    assert.ok(Math.abs(s4 / s3 - 1.065) < 1e-6);
+    assert.ok(Math.abs(s5 / s4 - 1.065) < 1e-6);
+    assert.ok(s6 > s5 && s6 - s5 < 0.2, `L5->L6 speed step ${s6 - s5} should stay smooth`);
 
     let prev = s1;
     for (let lvl = 2; lvl <= 120; lvl++) {
@@ -50,17 +52,18 @@ describe('difficulty progression', () => {
 
   it('keeps arc width narrowing well into high levels and above MIN_ARC_WIDTH', () => {
     assert.equal(getArcWidth(1, 0), 1.36);
-    assert.equal(getArcWidth(5, 0), 1.0);
+    assert.equal(getArcWidth(2, 0), 1.22);
+    assert.equal(getArcWidth(6, 0), 0.84);
     assert.ok(getArcWidth(1, 0) > getArcWidth(2, 0));
-    assert.ok(getArcWidth(5, 0) > getArcWidth(5, 1));
-    assert.ok(getArcWidth(6, 0) < getArcWidth(5, 0));
+    assert.ok(getArcWidth(2, 0) > getArcWidth(3, 0));
+    assert.ok(getArcWidth(6, 0) > getArcWidth(7, 0));
     assert.ok(getArcWidth(15, 3) > getArcWidth(25, 3));
     assert.ok(getArcWidth(25, 3) > getArcWidth(40, 3));
     assert.ok(getArcWidth(40, 3) > getArcWidth(60, 3));
     assert.ok(getArcWidth(100, 3) >= MIN_ARC_WIDTH);
   });
 
-  it('sets same direction on L1-2, alternating spin on L3+, and escalating drift/breathing on L6+', () => {
+  it('sets same direction on L1-2, alternating spin on L3+, and escalating drift/breathing on L4+', () => {
     const l1 = generateLevel(1, { mode: 'daily', seedKey: '2026-11-11' });
     assert.deepEqual(l1.rings.map((r) => r.direction), [1, 1]);
     assert.equal(l1.rings[0].driftAmplitude, 0);
@@ -70,33 +73,33 @@ describe('difficulty progression', () => {
     assert.equal(l2.rings[0].driftAmplitude, 0);
 
     const l3 = generateLevel(3, { mode: 'daily', seedKey: '2026-11-11' });
+    assert.equal(l3.ringCount, 3);
     assert.notEqual(l3.rings[0].direction, l3.rings[1].direction);
     assert.equal(l3.rings[0].driftAmplitude, 0);
 
+    const l5 = generateLevel(5, { mode: 'daily', seedKey: '2026-11-11' });
+    assert.equal(l5.rings.length, 3);
+    assert.ok(l5.rings[0].driftAmplitude > 0);
+    assert.ok(l5.rings[0].breatheAmplitude > 0);
+    assert.equal(l5.rings[2].driftAmplitude, 0);
+
     const l7 = generateLevel(7, { mode: 'daily', seedKey: '2026-11-11' });
-    assert.equal(l7.rings.length, 3);
-    assert.ok(l7.rings[0].driftAmplitude > 0);
-    assert.ok(l7.rings[0].breatheAmplitude > 0);
-    assert.equal(l7.rings[2].driftAmplitude, 0);
+    assert.equal(l7.ringCount, 4);
+    assert.equal(l7.rings.length, 4);
+    assert.ok(l7.rings[0].driftAmplitude > 0 && l7.rings[1].driftAmplitude > 0);
+    assert.equal(l7.rings[3].driftAmplitude, 0);
 
     const shifted = computeRingArcAtTime(l7.rings[0], 1.25);
     assert.notEqual(shifted.arcCenter, l7.rings[0].baseArcCenter);
     assert.ok(shifted.arcCenter >= 0 && shifted.arcCenter < TWO_PI);
     assert.ok(shifted.arcWidth >= MIN_ARC_WIDTH);
 
-    const l13 = generateLevel(13, { mode: 'daily', seedKey: '2026-11-11' });
-    assert.equal(l13.ringCount, 4);
-    assert.equal(l13.rings.length, 4);
-    assert.deepEqual(l13.rings.map((r) => r.direction), [1, -1, 1, -1]);
-    assert.ok(l13.rings[0].driftAmplitude > 0 && l13.rings[1].driftAmplitude > 0);
-    assert.equal(l13.rings[3].driftAmplitude, 0);
+    const l18 = generateLevel(18, { mode: 'daily', seedKey: '2026-11-11' });
+    assert.ok(l18.rings.every((r) => r.driftAmplitude > 0 && r.breatheAmplitude > 0));
 
-    const l25 = generateLevel(25, { mode: 'daily', seedKey: '2026-11-11' });
-    assert.ok(l25.rings.every((r) => r.driftAmplitude > 0 && r.breatheAmplitude > 0));
-
-    // Across high levels (L16+), starting spin direction varies deterministically while inner rings still alternate
+    // Across high levels (L11+), starting spin direction varies deterministically while inner rings still alternate
     const startDirs = new Set();
-    for (let lvl = 16; lvl <= 30; lvl++) {
+    for (let lvl = 11; lvl <= 25; lvl++) {
       const gen = generateLevel(lvl, { mode: 'daily', seedKey: '2026-11-11' });
       startDirs.add(gen.rings[0].direction);
       for (let i = 1; i < gen.rings.length; i++) {
@@ -133,8 +136,8 @@ describe('difficulty progression', () => {
     const s40 = getBaseAngularSpeed(40);
     const s80 = getBaseAngularSpeed(80);
     assert.ok(s40 >= 3.9, `Expected challenging speed >= 3.9 rad/s by L40, got ${s40}`);
-    assert.ok(s40 - s20 >= 0.75, `Expected strong L20->L40 speed gain, got ${s40 - s20}`);
-    assert.ok(s80 - s40 >= 0.55, `Expected strong L40->L80 speed gain, got ${s80 - s40}`);
+    assert.ok(s40 - s20 >= 0.45, `Expected strong L20->L40 speed gain, got ${s40 - s20}`);
+    assert.ok(s80 - s40 >= 0.45, `Expected strong L40->L80 speed gain, got ${s80 - s40}`);
     assert.ok(getArcWidth(80, 3) < getArcWidth(40, 3), 'Inner arc should continue narrowing past L40');
     assert.ok(getArcWidth(80, 3) < 0.36, 'High-level precision arcs should tighten below 0.36 rad');
   });
@@ -163,8 +166,8 @@ describe('difficulty progression', () => {
 
     for (let lvl = 1; lvl <= 100; lvl++) {
       const rc = getRingCount(lvl);
-      if (lvl <= 5) assert.equal(rc, 2, `L${lvl} expected 2 rings`);
-      else if (lvl <= 12) assert.equal(rc, 3, `L${lvl} expected 3 rings`);
+      if (lvl <= 2) assert.equal(rc, 2, `L${lvl} expected 2 rings`);
+      else if (lvl <= 6) assert.equal(rc, 3, `L${lvl} expected 3 rings`);
       else assert.equal(rc, 4, `L${lvl} expected 4 rings`);
 
       const speed = getBaseAngularSpeed(lvl);
@@ -188,7 +191,7 @@ describe('difficulty progression', () => {
       const levelDef = generateLevel(lvl, { mode: 'daily', seedKey: '2026-11-14' });
       assert.equal(levelDef.rings.length, rc);
 
-      const expectedDriftRings = lvl < 6 ? 0 : lvl < 13 ? 1 : lvl < 18 ? 2 : lvl < 25 ? 3 : rc;
+      const expectedDriftRings = lvl < 4 ? 0 : lvl < 7 ? 1 : lvl < 12 ? 2 : lvl < 18 ? 3 : rc;
       const actualDriftRings = levelDef.rings.filter((r) => r.driftAmplitude > 0).length;
       assert.equal(actualDriftRings, expectedDriftRings, `L${lvl} expected ${expectedDriftRings} drift rings`);
 
